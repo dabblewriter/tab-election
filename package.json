@@ -1,0 +1,27 @@
+{
+  "name": "tab-election",
+  "version": "1.0.0",
+  "description": "Provides leadership election in the browser across tabs using localStorage only.",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "scripts": {
+    "start": "rollup -c -w",
+    "build": "rollup -c"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dabblewriter/tab-election.git"
+  },
+  "author": "Jacob Wright",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dabblewriter/tab-election/issues"
+  },
+  "homepage": "https://github.com/dabblewriter/tab-election#readme",
+  "devDependencies": {
+    "rollup": "^0.52.0",
+    "rollup-plugin-babel": "^3.0.2",
+    "rollup-plugin-buble": "^0.18.0",
+    "rollup-watch": "^4.3.1"
+  }
+}
