@@ -2,6 +2,19 @@
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
+var chars = (
+  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+).split('');
+
+function createNodeId() {
+  var id = '';
+  var length = 6;
+  while (length--) {
+    id += chars[Math.random() * chars.length | 0];
+  }
+  return id;
+}
+
 var VOTE_PERIOD = 500;
 var HEARTBEAT = 500;
 var ELECTION_MIN = 2000; // when not visible in browsers heartbeat is slowed down to 1000 ms, keep above this
@@ -113,31 +126,145 @@ LeaderElector.prototype.becomeLeader = function becomeLeader () {
 
 function getLeaderInfo(name) {
   try {
-    return JSON.parse(localStorage.getItem(("leader:" + name)));
+    return JSON.parse(localStorage.getItem(("tab-leader:" + name)));
   } catch(err) {
     return null;
   }
 }
 
 function setLeaderInfo(name, nodeId) {
-  localStorage.setItem(("leader:" + name), JSON.stringify({ nodeId: nodeId, timestamp: Date.now() }));
+  localStorage.setItem(("tab-leader:" + name), JSON.stringify({ nodeId: nodeId, timestamp: Date.now() }));
 }
 
 function clearLeaderInfo(name) {
-  localStorage.removeItem(("leader:" + name));
+  localStorage.removeItem(("tab-leader:" + name));
 }
 
-var chars = (
-  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-).split('');
+var METADATA_HEARTBEAT = 500;
+var METADATA_MAX = 2000;
 
-function createNodeId() {
-  var id = '';
-  var length = 6;
-  while (length--) {
-    id += chars[Math.random() * chars.length | 0];
-  }
-  return id;
+/**
+ * Create a metadata consumer to set metadata for this tab and get the metadata from other tabs. Call subscribe() to
+ * start listening and close() to disconnect.
+ */
+var Metadata = function Metadata(name) {
+  this.name = name;
+  this.nodeId = createNodeId();
+  this.timeout = 0;
+  this.callback = null;
+  this.close = this.close.bind(this);
+  this.version = 0;
+  this.source = {};
+  this.metadata = {};
+  this.data = {};
+  this.subscribers = [];
+
+  this.watchMetadata();
+  this.set(this.data);
+  window.addEventListener('unload', this.close);
+};
+
+/**
+ * Subscribe to changes in the node metadata.
+ * @param{Function} callback A function that is called whenever node metadata is changed on any node.
+ * @return {Function} A function to cancel the subscription.
+ */
+Metadata.prototype.subscribe = function subscribe (callback) {
+  this.subscribers.push(callback);
+  return function cancel() {
+    var index = this.subscribers.indexOf(callback);
+    if (index >= 0) { this.subscribers.splice(index, 1); }
+  };
+};
+
+/**
+ * Sets the metadata for this node.
+ * @param{Object} metadata The metadata for this node.
+ * @return {Metadata} A reference to itself.
+ */
+Metadata.prototype.set = function set (data) {
+    var this$1 = this;
+    var obj;
+
+  this.data = Object.assign(this.data, data);
+  var metadata = getMetadata$1(this.name);
+  var thisNode = metadata[this.nodeId] || (metadata[this.nodeId] = {});
+  thisNode.timestamp = Date.now();
+  thisNode.version = this.version++;
+  thisNode.data = this.data;
+  setMetadata(this.name, metadata);
+
+  // Send updates locally immediately
+  this.source = metadata;
+  this.metadata[this.nodeId] = this.data;
+  this.subscribers.forEach(function (fn) { return fn.call(this$1, this$1.metadata, ( obj = {}, obj[this$1.nodeId] = this$1.data, obj)); });
+
+  return this;
+};
+
+/**
+ * Close this leader elector. To restart it, you must call waitForLeadership again.
+ */
+Metadata.prototype.close = function close () {
+  clearTimeout(this.timeout);
+  window.removeEventListener('unload', this.close);
+  var metadata = getMetadata$1(this.name);
+  delete metadata[this.nodeId];
+  setMetadata(this.name, metadata);
+};
+
+
+Metadata.prototype.watchMetadata = function watchMetadata () {
+    var this$1 = this;
+
+
+  var heartbeat = function () {
+    var metadata = getMetadata$1(this$1.name);
+    var now = Date.now();
+    var changed = {};
+
+    // Look for changes and clean up old nodes
+    Object.keys(metadata).forEach(function (nodeId) {
+      var entry = metadata[nodeId];
+      if (now - entry.timestamp > METADATA_MAX) {
+        changed[nodeId] = null;
+        delete metadata[nodeId];
+      } else {
+        if (!this$1.source[nodeId] || this$1.source[nodeId].version < entry.version) {
+          changed[nodeId] = entry.data;
+        }
+      }
+    });
+
+    // Update our timestamp
+    var thisNode = metadata[this$1.nodeId] || (metadata[this$1.nodeId] = {
+      timestamp: 0,
+      version: this$1.version,
+      data: {}
+    });
+    thisNode.timestamp = Date.now();
+    setMetadata(this$1.name, metadata);
+
+    // Dispatch update if there was one
+    if (Object.keys(changed).length) {
+      this$1.source = metadata;
+      this$1.metadata = {};
+      Object.keys(metadata).forEach(function (nodeId) { return this$1.metadata[nodeId] = metadata[nodeId].data; });
+      this$1.subscribers.forEach(function (fn) { return fn.call(this$1, this$1.metadata, changed); });
+    }
+
+    this$1.timeout = setTimeout(heartbeat, METADATA_HEARTBEAT);
+  };
+
+  heartbeat();
+};
+
+function getMetadata$1(name) {
+  return JSON.parse(localStorage.getItem(("tab-metadata:" + name)) || '{}');
+}
+
+function setMetadata(name, metadata) {
+  localStorage.setItem(("tab-metadata:" + name), JSON.stringify(metadata));
 }
 
 // Shortcut, returns the elector that you can later close, and calls the callback once this tab becomes the leader.
@@ -150,6 +277,19 @@ function waitForLeadership(name, callback) {
   return elector.waitForLeadership(callback);
 }
 
+// Shortcut, returns the TabMetadata that you can set metadata and later close, and calls the callback whenever tab
+// metadata changes.
+function getMetadata(name, callback) {
+  if (typeof name === 'function') {
+    callback = name;
+    name = 'default';
+  }
+  var metadata = new Metadata(name);
+  metadata.subscribe(callback);
+  return metadata;
+}
+
 exports.LeaderElector = LeaderElector;
 exports.waitForLeadership = waitForLeadership;
+exports.getMetadata = getMetadata;
 //# sourceMappingURL=index.js.map

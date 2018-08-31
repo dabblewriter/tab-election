@@ -1,3 +1,5 @@
+import { createNodeId } from './utils';
+
 const VOTE_PERIOD = 500;
 const HEARTBEAT = 500;
 const ELECTION_MIN = 2000; // when not visible in browsers heartbeat is slowed down to 1000 ms, keep above this
@@ -108,29 +110,16 @@ export default class LeaderElector {
 
 function getLeaderInfo(name) {
   try {
-    return JSON.parse(localStorage.getItem(`leader:${name}`));
+    return JSON.parse(localStorage.getItem(`tab-leader:${name}`));
   } catch(err) {
     return null;
   }
 }
 
 function setLeaderInfo(name, nodeId) {
-  localStorage.setItem(`leader:${name}`, JSON.stringify({ nodeId, timestamp: Date.now() }));
+  localStorage.setItem(`tab-leader:${name}`, JSON.stringify({ nodeId, timestamp: Date.now() }));
 }
 
 function clearLeaderInfo(name) {
-  localStorage.removeItem(`leader:${name}`);
-}
-
-const chars = (
-  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-).split('');
-
-function createNodeId() {
-  let id = '';
-  let length = 6;
-  while (length--) {
-    id += chars[Math.random() * chars.length | 0];
-  }
-  return id;
+  localStorage.removeItem(`tab-leader:${name}`);
 }
