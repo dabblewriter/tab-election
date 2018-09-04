@@ -33,7 +33,7 @@ export default class Metadata {
    */
   subscribe(callback) {
     this.subscribers.push(callback);
-    return function cancel() {
+    return () => {
       const index = this.subscribers.indexOf(callback);
       if (index >= 0) this.subscribers.splice(index, 1);
     };

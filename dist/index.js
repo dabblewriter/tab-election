@@ -124,6 +124,8 @@ LeaderElector.prototype.becomeLeader = function becomeLeader () {
   this.callback();
 };
 
+
+
 function getLeaderInfo(name) {
   try {
     return JSON.parse(localStorage.getItem(("tab-leader:" + name)));
@@ -170,10 +172,12 @@ var Metadata = function Metadata(name) {
  * @return {Function} A function to cancel the subscription.
  */
 Metadata.prototype.subscribe = function subscribe (callback) {
+    var this$1 = this;
+
   this.subscribers.push(callback);
-  return function cancel() {
-    var index = this.subscribers.indexOf(callback);
-    if (index >= 0) { this.subscribers.splice(index, 1); }
+  return function () {
+    var index = this$1.subscribers.indexOf(callback);
+    if (index >= 0) { this$1.subscribers.splice(index, 1); }
   };
 };
 
@@ -184,10 +188,9 @@ Metadata.prototype.subscribe = function subscribe (callback) {
  */
 Metadata.prototype.set = function set (data) {
     var this$1 = this;
-    var obj;
 
   this.data = Object.assign(this.data, data);
-  var metadata = getMetadata$1(this.name);
+  var metadata = getMetadata(this.name);
   var thisNode = metadata[this.nodeId] || (metadata[this.nodeId] = {});
   thisNode.timestamp = Date.now();
   thisNode.version = this.version++;
@@ -197,7 +200,11 @@ Metadata.prototype.set = function set (data) {
   // Send updates locally immediately
   this.source = metadata;
   this.metadata[this.nodeId] = this.data;
-  this.subscribers.forEach(function (fn) { return fn.call(this$1, this$1.metadata, ( obj = {}, obj[this$1.nodeId] = this$1.data, obj)); });
+  this.subscribers.forEach(function (fn) {
+      var obj;
+
+      return fn.call(this$1, this$1.metadata, ( obj = {}, obj[this$1.nodeId] = this$1.data, obj ));
+    });
 
   return this;
 };
@@ -208,7 +215,7 @@ Metadata.prototype.set = function set (data) {
 Metadata.prototype.close = function close () {
   clearTimeout(this.timeout);
   window.removeEventListener('unload', this.close);
-  var metadata = getMetadata$1(this.name);
+  var metadata = getMetadata(this.name);
   delete metadata[this.nodeId];
   setMetadata(this.name, metadata);
 };
@@ -219,7 +226,7 @@ Metadata.prototype.watchMetadata = function watchMetadata () {
 
 
   var heartbeat = function () {
-    var metadata = getMetadata$1(this$1.name);
+    var metadata = getMetadata(this$1.name);
     var now = Date.now();
     var changed = {};
 
@@ -259,7 +266,8 @@ Metadata.prototype.watchMetadata = function watchMetadata () {
   heartbeat();
 };
 
-function getMetadata$1(name) {
+
+function getMetadata(name) {
   return JSON.parse(localStorage.getItem(("tab-metadata:" + name)) || '{}');
 }
 
@@ -279,7 +287,7 @@ function waitForLeadership(name, callback) {
 
 // Shortcut, returns the TabMetadata that you can set metadata and later close, and calls the callback whenever tab
 // metadata changes.
-function getMetadata(name, callback) {
+function getMetadata$1(name, callback) {
   if (typeof name === 'function') {
     callback = name;
     name = 'default';
@@ -291,5 +299,5 @@ function getMetadata(name, callback) {
 
 exports.LeaderElector = LeaderElector;
 exports.waitForLeadership = waitForLeadership;
-exports.getMetadata = getMetadata;
+exports.getMetadata = getMetadata$1;
 //# sourceMappingURL=index.js.map
