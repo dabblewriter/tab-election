@@ -111,13 +111,15 @@ export default class Tab {
   }
 
   postMessage(name, data, to) {
-    const value = stringify({ name, data, from: this.id, to, timestamp: Date.now() });
-    localStorage.setItem(MESSAGE_KEY, value);
-    window.dispatchEvent(new StorageEvent('storage', {
-      storageArea: localStorage,
-      key: MESSAGE_KEY,
-      newValue: value,
-    }));
+    const newValue = stringify({ name, data, from: this.id, to, timestamp: Date.now() });
+    const oldValue = localStorage.getItem(MESSAGE_KEY);
+    localStorage.setItem(MESSAGE_KEY, newValue);
+    const event = new Event('storage');
+    event.storageArea = localStorage;
+    event.key = MESSAGE_KEY;
+    event.oldValue = oldValue;
+    event.newValue = newValue;
+    window.dispatchEvent(event);
     localStorage.removeItem(MESSAGE_KEY);
   }
 

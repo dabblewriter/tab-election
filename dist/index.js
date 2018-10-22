@@ -117,13 +117,15 @@ Tab.prototype.emit = function emit (type, data) {
 };
 
 Tab.prototype.postMessage = function postMessage (name, data, to) {
-  var value = stringify({ name: name, data: data, from: this.id, to: to, timestamp: Date.now() });
-  localStorage.setItem(MESSAGE_KEY, value);
-  window.dispatchEvent(new StorageEvent('storage', {
-    storageArea: localStorage,
-    key: MESSAGE_KEY,
-    newValue: value,
-  }));
+  var newValue = stringify({ name: name, data: data, from: this.id, to: to, timestamp: Date.now() });
+  var oldValue = localStorage.getItem(MESSAGE_KEY);
+  localStorage.setItem(MESSAGE_KEY, newValue);
+  var event = new Event('storage');
+  event.storageArea = localStorage;
+  event.key = MESSAGE_KEY;
+  event.oldValue = oldValue;
+  event.newValue = newValue;
+  window.dispatchEvent(event);
   localStorage.removeItem(MESSAGE_KEY);
 };
 
