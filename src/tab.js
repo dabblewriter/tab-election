@@ -16,28 +16,33 @@
 const HEARTBEAT_INTERVAL = 500;
 const TAB_TIMEOUT = 5 * 1000;
 const PING_TIMEOUT = 50;
+const BAD_TIMESTAMP_MARGIN = 30 * 1000;
 
 const CLOSE = 'tabClose';
 const UPDATE = 'tabUpdate';
 const PROMOTE = 'tabPromoted';
 const PING = 'ping';
 const PONG = 'pong';
-const MESSAGE_KEY = 'tab-message';
-const TABS_KEY = 'tab-tabs';
-const LEADER_KEY = 'tab-leader';
+const MESSAGE_KEY = 'election-message';
+const TABS_KEY = 'election-tabs';
+const LEADER_KEY = 'election-leader';
 
 
 export default class Tab {
 
-  constructor() {
+  constructor(name) {
     this.id = createTabId();
     this.name = name;
     this.tab = { id: this.id };
 
-    this._leaderId = localStorage.getItem(LEADER_KEY) || null;
-    this._tabs = parse(localStorage.getItem(TABS_KEY), {});
+    this._messageKey = this.name + '-' + MESSAGE_KEY;
+    this._tabsKey = this.name + '-' + TABS_KEY;
+    this._leaderKey = this.name + '-' + LEADER_KEY;
+    this._leaderId = localStorage.getItem(this._leaderKey) || null;
+    this._tabs = parse(localStorage.getItem(this._tabsKey), {});
     this._tabs[this.id] = this.tab;
     this._events = {};
+    this._messageIds = {};
 
     this._onStorage = this._onStorage.bind(this);
     this.close = this.close.bind(this);
@@ -59,7 +64,7 @@ export default class Tab {
     clearTimeout(this._heartbeatTimeout);
 
     if (Object.keys(this._tabs).length === 1) {
-      localStorage.setItem(TABS_KEY, '{}');
+      localStorage.setItem(this._tabsKey, '{}');
     } else {
       this.postMessage(CLOSE, this.id);
     }
@@ -111,16 +116,20 @@ export default class Tab {
   }
 
   postMessage(name, data, to) {
-    const newValue = stringify({ name, data, from: this.id, to, timestamp: Date.now() });
-    const oldValue = localStorage.getItem(MESSAGE_KEY);
-    localStorage.setItem(MESSAGE_KEY, newValue);
+    const id = createTabId(); // Fix Safari dispatching event to own tab (we do that)
+    this._messageIds[id] = true;
+    setTimeout(() => delete this._messageIds[id], 2000);
+    const newValue = stringify({ id, name, data, from: this.id, to, timestamp: Date.now() });
+    const localValue = stringify({ name, data, from: this.id, to, timestamp: Date.now() });
+    const oldValue = localStorage.getItem(this._messageKey);
+    localStorage.setItem(this._messageKey, newValue);
     const event = new Event('storage');
     event.storageArea = localStorage;
-    event.key = MESSAGE_KEY;
+    event.key = this._messageKey;
     event.oldValue = oldValue;
-    event.newValue = newValue;
+    event.newValue = localValue;
     window.dispatchEvent(event);
-    localStorage.removeItem(MESSAGE_KEY);
+    localStorage.removeItem(this._messageKey);
   }
 
   _sendHeartbeat() {
@@ -138,7 +147,10 @@ export default class Tab {
     this.postMessage(PING, this.tab);
 
     Object.values(this._tabs).forEach(n => {
-      if (now - n.lastUpdated > TAB_TIMEOUT) this.postMessage(CLOSE, n.id);
+      // If a tab is old (or an old record with a future date is stuck in localStorage), close it
+      if (now - n.lastUpdated > TAB_TIMEOUT || n.lastUpdated - now > BAD_TIMESTAMP_MARGIN) {
+        this.postMessage(CLOSE, n.id);
+      }
     });
   }
 
@@ -175,14 +187,14 @@ export default class Tab {
 
     // if we think we should be the leader, set the key and send a message
     if (this.id === maxId) {
-      localStorage.setItem(LEADER_KEY, this.id);
+      localStorage.setItem(this._leaderKey, this.id);
       this.postMessage(PROMOTE);
     }
 
     // Allow for race conditions and take the last value in localStorage as authoritative
     setTimeout(() => {
       // Nobody has taken leadership from us
-      this._leaderId = localStorage.getItem(LEADER_KEY);
+      this._leaderId = localStorage.getItem(this._leaderKey);
       if (this.isLeader()) {
         this.emit('promote');
       }
@@ -211,20 +223,20 @@ export default class Tab {
   }
 
   _onTabPromote() {
-    this._leaderId = localStorage.getItem(LEADER_KEY);
+    this._leaderId = localStorage.getItem(this._leaderKey);
   }
 
   _storeState() {
-    localStorage.setItem(TABS_KEY, stringify(this._tabs));
+    localStorage.setItem(this._tabsKey, stringify(this._tabs));
   }
 
   _onStorage(event) {
     if (event.storageArea !== localStorage) return;
     if (!event.newValue) return;
-    if (event.key !== MESSAGE_KEY) return;
+    if (event.key !== this._messageKey) return;
 
     const message = parse(event.newValue);
-    if (!message || message.to && message.to !== this.id) return;
+    if (!message || message.to && message.to !== this.id || this._messageIds[message.id]) return;
     this.emit(message.name, message);
   }
 }

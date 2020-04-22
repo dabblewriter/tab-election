@@ -20,26 +20,31 @@ Object.defineProperty(exports, '__esModule', { value: true });
 var HEARTBEAT_INTERVAL = 500;
 var TAB_TIMEOUT = 5 * 1000;
 var PING_TIMEOUT = 50;
+var BAD_TIMESTAMP_MARGIN = 30 * 1000;
 
 var CLOSE = 'tabClose';
 var UPDATE = 'tabUpdate';
 var PROMOTE = 'tabPromoted';
 var PING = 'ping';
 var PONG = 'pong';
-var MESSAGE_KEY = 'tab-message';
-var TABS_KEY = 'tab-tabs';
-var LEADER_KEY = 'tab-leader';
+var MESSAGE_KEY = 'election-message';
+var TABS_KEY = 'election-tabs';
+var LEADER_KEY = 'election-leader';
 
 
-var Tab = function Tab() {
+var Tab = function Tab(name) {
   this.id = createTabId();
   this.name = name;
   this.tab = { id: this.id };
 
-  this._leaderId = localStorage.getItem(LEADER_KEY) || null;
-  this._tabs = parse(localStorage.getItem(TABS_KEY), {});
+  this._messageKey = this.name + '-' + MESSAGE_KEY;
+  this._tabsKey = this.name + '-' + TABS_KEY;
+  this._leaderKey = this.name + '-' + LEADER_KEY;
+  this._leaderId = localStorage.getItem(this._leaderKey) || null;
+  this._tabs = parse(localStorage.getItem(this._tabsKey), {});
   this._tabs[this.id] = this.tab;
   this._events = {};
+  this._messageIds = {};
 
   this._onStorage = this._onStorage.bind(this);
   this.close = this.close.bind(this);
@@ -61,7 +66,7 @@ Tab.prototype.close = function close () {
   clearTimeout(this._heartbeatTimeout);
 
   if (Object.keys(this._tabs).length === 1) {
-    localStorage.setItem(TABS_KEY, '{}');
+    localStorage.setItem(this._tabsKey, '{}');
   } else {
     this.postMessage(CLOSE, this.id);
   }
@@ -117,16 +122,22 @@ Tab.prototype.emit = function emit (type, data) {
 };
 
 Tab.prototype.postMessage = function postMessage (name, data, to) {
-  var newValue = stringify({ name: name, data: data, from: this.id, to: to, timestamp: Date.now() });
-  var oldValue = localStorage.getItem(MESSAGE_KEY);
-  localStorage.setItem(MESSAGE_KEY, newValue);
+    var this$1 = this;
+
+  var id = createTabId(); // Fix Safari dispatching event to own tab (we do that)
+  this._messageIds[id] = true;
+  setTimeout(function () { return delete this$1._messageIds[id]; }, 2000);
+  var newValue = stringify({ id: id, name: name, data: data, from: this.id, to: to, timestamp: Date.now() });
+  var localValue = stringify({ name: name, data: data, from: this.id, to: to, timestamp: Date.now() });
+  var oldValue = localStorage.getItem(this._messageKey);
+  localStorage.setItem(this._messageKey, newValue);
   var event = new Event('storage');
   event.storageArea = localStorage;
-  event.key = MESSAGE_KEY;
+  event.key = this._messageKey;
   event.oldValue = oldValue;
-  event.newValue = newValue;
+  event.newValue = localValue;
   window.dispatchEvent(event);
-  localStorage.removeItem(MESSAGE_KEY);
+  localStorage.removeItem(this._messageKey);
 };
 
 Tab.prototype._sendHeartbeat = function _sendHeartbeat () {
@@ -146,7 +157,10 @@ Tab.prototype._sendHeartbeat = function _sendHeartbeat () {
   this.postMessage(PING, this.tab);
 
   Object.values(this._tabs).forEach(function (n) {
-    if (now - n.lastUpdated > TAB_TIMEOUT) { this$1.postMessage(CLOSE, n.id); }
+    // If a tab is old (or an old record with a future date is stuck in localStorage), close it
+    if (now - n.lastUpdated > TAB_TIMEOUT || n.lastUpdated - now > BAD_TIMESTAMP_MARGIN) {
+      this$1.postMessage(CLOSE, n.id);
+    }
   });
 };
 
@@ -187,14 +201,14 @@ Tab.prototype._runElection = function _runElection () {
 
   // if we think we should be the leader, set the key and send a message
   if (this.id === maxId) {
-    localStorage.setItem(LEADER_KEY, this.id);
+    localStorage.setItem(this._leaderKey, this.id);
     this.postMessage(PROMOTE);
   }
 
   // Allow for race conditions and take the last value in localStorage as authoritative
   setTimeout(function () {
     // Nobody has taken leadership from us
-    this$1._leaderId = localStorage.getItem(LEADER_KEY);
+    this$1._leaderId = localStorage.getItem(this$1._leaderKey);
     if (this$1.isLeader()) {
       this$1.emit('promote');
     }
@@ -223,20 +237,20 @@ Tab.prototype._onTabClose = function _onTabClose (message) {
 };
 
 Tab.prototype._onTabPromote = function _onTabPromote () {
-  this._leaderId = localStorage.getItem(LEADER_KEY);
+  this._leaderId = localStorage.getItem(this._leaderKey);
 };
 
 Tab.prototype._storeState = function _storeState () {
-  localStorage.setItem(TABS_KEY, stringify(this._tabs));
+  localStorage.setItem(this._tabsKey, stringify(this._tabs));
 };
 
 Tab.prototype._onStorage = function _onStorage (event) {
   if (event.storageArea !== localStorage) { return; }
   if (!event.newValue) { return; }
-  if (event.key !== MESSAGE_KEY) { return; }
+  if (event.key !== this._messageKey) { return; }
 
   var message = parse(event.newValue);
-  if (!message || message.to && message.to !== this.id) { return; }
+  if (!message || message.to && message.to !== this.id || this._messageIds[message.id]) { return; }
   this.emit(message.name, message);
 };
 
@@ -278,4 +292,3 @@ function waitForLeadership(name, callback) {
 
 exports.Tab = Tab;
 exports.waitForLeadership = waitForLeadership;
-//# sourceMappingURL=index.js.map
