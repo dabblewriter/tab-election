@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://assets-global.website-files.com/61a901161719c64106fde73b/61ae651930ece3391f5c69fd_5c47a7047febe4a67877c8be_favicon.png" rel="shortcut icon" type="image/x-icon"/>
+  <title>Test</title>
+</head>
+<body>
+  <h1>Testing</h1>
+  <pre id="out"></pre>
+  <script type="module">
+    import { waitForLeadership } from './index.js';
+    const tab = waitForLeadership('test', () => {
+      console.log('Became leader!');
+    });
+    const out = document.getElementById('out');
+    let lastJson = '';
+    setInterval(() => {
+      const json = JSON.stringify(tab, (key, value) => {
+        if (value instanceof Map) return Object.fromEntries(value.entries());
+        return value;
+      }, '  ');
+      if (json !== lastJson) {
+        out.innerText = json;
+        lastJson = json;
+      }
+    }, 50);
+  </script>
+</body>
+</html>

@@ -5,9 +5,11 @@
   "main": "dist/index.js",
   "module": "dist/index.js",
   "scripts": {
-    "start": "rollup -c -w",
-    "build": "rollup -c"
+    "start": "cd dist && http-server",
+    "watch": "tsc -w",
+    "build": "tsc"
   },
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dabblewriter/tab-election.git"
@@ -19,8 +21,7 @@
   },
   "homepage": "https://github.com/dabblewriter/tab-election#readme",
   "devDependencies": {
-    "rollup": "^1.31.1",
-    "rollup-plugin-buble": "^0.19.8",
-    "rollup-watch": "^4.3.1"
+    "http-server": "^14.1.1",
+    "typescript": "^4.8.4"
   }
 }
