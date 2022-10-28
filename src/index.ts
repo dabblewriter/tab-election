@@ -7,10 +7,13 @@ const PING = 'ping';
 const PONG = 'pong';
 const ELECTION = 'election';
 
-type Callback = () => any;
+export type Callback = () => any;
+export type Tab = {
+  close: () => void;
+}
 
-export function waitForLeadership(onLeadership: Callback): {id: string, tabs: Map<string, number>};
-export function waitForLeadership(name: string, onLeadership: Callback): {id: string, tabs: Map<string, number>};
+export function waitForLeadership(onLeadership: Callback): Tab;
+export function waitForLeadership(name: string, onLeadership: Callback): Tab;
 export function waitForLeadership(name: string | Callback, onLeadership?: Callback) {
   if (typeof name === 'function') {
     onLeadership = name;
