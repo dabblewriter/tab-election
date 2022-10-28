@@ -1,6 +1,6 @@
 {
   "name": "tab-election",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Provides leadership election in the browser across tabs using localStorage only.",
   "main": "dist/index.js",
   "module": "dist/index.js",
