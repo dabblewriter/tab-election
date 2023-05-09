@@ -14,8 +14,8 @@ export function waitForLeadership(name, onLeadership) {
     const tabs = new Map([[id, Date.now()]]);
     let leaderId = '';
     let heartbeatTimeout = 0;
-    const channel = new BroadcastChannel(`tab-election-${name}`);
-    channel.addEventListener('message', onMessage);
+    let channel;
+    createChannel();
     self.addEventListener('beforeunload', close);
     const callbacks = {
         [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [PROMOTE]: onTabPromote, [ELECTION]: onElection,
@@ -24,6 +24,10 @@ export function waitForLeadership(name, onLeadership) {
     // Start the heartbeat & initial ping to discover
     sendHeartbeat();
     return tab;
+    function createChannel() {
+        channel = new BroadcastChannel(`tab-election-${name}`);
+        channel.addEventListener('message', onMessage);
+    }
     function close() {
         channel.removeEventListener('message', onMessage);
         self.removeEventListener('beforeunload', close);
@@ -38,8 +42,17 @@ export function waitForLeadership(name, onLeadership) {
     }
     function postMessage(name, ...rest) {
         const data = { name, rest };
-        channel.postMessage(data);
-        onMessage(new MessageEvent('message', { data }));
+        try {
+            channel.postMessage(data);
+            onMessage(new MessageEvent('message', { data }));
+        }
+        catch (e) {
+            // If the channel is closed, create a new one and try again
+            if (e.name === 'InvalidStateError') {
+                createChannel();
+                postMessage(name, ...rest);
+            }
+        }
     }
     function onMessage(event) {
         const { name, rest } = event.data;
