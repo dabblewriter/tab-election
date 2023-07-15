@@ -33,3 +33,33 @@ const tab = waitForLeadership('namespace', () => {
 tab.close();
 ```
 
+To communicate between tabs, send and receive messages.
+
+```js
+import { waitForLeadership } from 'tab-election';
+
+const tab = waitForLeadership('namespace', () => {
+  // establish websocket, database connection, or whatever is needed as the leader
+});
+
+tab.onReceive(msg => console.log(msg));
+
+tab.send('This is a test'); // will not send to self, only to other tabs
+```
+
+To keep state (any important data) between the current leader and the other tabs, use `state()`. Use this to let the
+other tabs know when the leader is syncing, whether it is online, or if any errors have occured. `state()` will return
+the current state of the leader and `state(data)` will set the current state if the tab is the current leader.
+
+```js
+import { waitForLeadership } from 'tab-election';
+
+const tab = waitForLeadership('namespace', () => {
+  // establish websocket, database connection, or whatever is needed as the leader
+  tab.state({ connected: false });
+  // connect to the server ...
+  tab.state({ connected: true });
+});
+
+tab.onState(state => console.log('The leader is connected to the server?', state.connected));
+```
