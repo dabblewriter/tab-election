@@ -2,7 +2,7 @@
 
 Provides leadership election in the browser across tabs *and* workers using BroadcastChannel. It works in modern browsers. Use a (polyfill)[https://www.npmjs.com/package/broadcastchannel-polyfill] if you need to support older browsers.
 
-It has been optimized so tabs will resolve leadership very quickly, in about 50ms, avoiding a delay in database or server connections and app startup time. After that, when the existing leader is closed, it will take another 50ms to elect a new leader. The exception is when a tab crashes when it may take a second or two.
+It has been optimized so tabs will resolve leadership very quickly, in about 50ms, minimizing a delay in database or server connections and app startup time. After that, when the existing leader is closed, it will take another 50ms to elect a new leader. The exception is when a tab crashes when it may take a second or two.
 
 ## Install
 
@@ -80,6 +80,21 @@ const tab = waitForLeadership('namespace', () => {
     }
   }
 });
+
+const result = await tab.call('saveData', { myData: 'foobar' });
+if (result === true) {
+  console.log('Successfully saved');
+}
+```
+
+If a tab wants to make calls to the leader, send and receive messages, and know the state, but it does not want to ever
+become the leader, then simply don't pass in a callback to `waitForLeadership`. This is useful when workers are used for
+leadership and UI contexts make the requests and display state.
+
+```js
+import { waitForLeadership } from 'tab-election';
+
+const tab = waitForLeadership('namespace');
 
 const result = await tab.call('saveData', { myData: 'foobar' });
 if (result === true) {

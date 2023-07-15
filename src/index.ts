@@ -25,13 +25,14 @@ export type Tab<T = any> = {
   close: () => void;
 }
 
-export function waitForLeadership<T = any>(onLeadership: Callback): Tab<T>;
-export function waitForLeadership<T = any>(name: string, onLeadership: Callback): Tab<T>;
+export function waitForLeadership<T = any>(onLeadership?: Callback): Tab<T>;
+export function waitForLeadership<T = any>(name: string, onLeadership?: Callback): Tab<T>;
 export function waitForLeadership<T = any>(name: string | Callback, onLeadership?: Callback) {
-  if (typeof name === 'function') {
+  if (typeof name !== 'string') {
     onLeadership = name;
     name = 'default';
   }
+  const isSpectator = !onLeadership;
   const id = createTabId();
   const tabs = new Map([[ id, Date.now() ]]);
   const onReceives = new Set<OnReceive>();
@@ -48,8 +49,9 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   const callbacks = {
     [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [PROMOTE]: onTabPromote, [ELECTION]: onElection,
     [CALL]: onCall, [RETURN]: onReturn, [STATE]: onUserState, [RECEIVE]: onUserMessage,
-  }
+  };
   const call = (name: string, ...rest: any) => {
+    if (!leaderId) return console.error('No leader to call');
     return new Promise((resolve, reject) => {
       callDeferreds.set(++callCount, { resolve, reject });
       if (isLeader()) onCall(id, callCount, name, ...rest);
@@ -75,7 +77,11 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   const tab = { id, leaderId, tabs, call, send, onReceive, state, onState, close };
 
   // Start the heartbeat & initial ping to discover
-  sendHeartbeat();
+  if (isSpectator) {
+    postMessage(PING);
+  } else {
+    sendHeartbeat();
+  }
 
   return tab;
 
@@ -88,7 +94,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     channel.removeEventListener('message', onMessage);
     self.removeEventListener('beforeunload', close);
     clearTimeout(heartbeatTimeout);
-    postMessage(CLOSE, id);
+    if (!isSpectator) postMessage(CLOSE, id);
     if (leaderId === id) postMessage(ELECTION);
     channel.close();
   }
@@ -138,12 +144,13 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
 
   function onPing(tabId: string, isTabLeader: boolean) {
     if (isLeader() && leaderState !== undefined && !tabs.has(tabId)) {
-      tab.state(leaderState); // When a new tab joins, send the leader state
+      postMessage(STATE, leaderState, DONT_RECEIVE); // When a new tab joins, send the leader state
     }
+    if (!tabId) return; // Spectator tabs don't need to respond or to be responded to
     const now = Date.now();
     tabs.set(tabId, now);
 
-    if (tabId !== id) {
+    if (tabId !== id && !isSpectator) {
       postMessage(PONG, id, isLeader());
     }
     if (isTabLeader) tab.leaderId = leaderId = tabId;
@@ -158,8 +165,8 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     tab.leaderId = leaderId = '';
     const maxId = Array.from(tabs.keys()).sort().pop();
 
-    // if we think we should be the leader, set the key and send a message
-    if (id === maxId) {
+    // if we think we should be the leader because our id is the max, send a message
+    if (id === maxId && !isSpectator) {
       postMessage(PROMOTE, id);
       onTabPromote(id);
     }
@@ -202,6 +209,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     if (!leaderId || leaderId < newLeaderId) {
       tab.leaderId = leaderId = newLeaderId;
     }
+    if (isSpectator) return;
     setTimeout(() => {
       if (isLeader() && onLeadership) {
         // We won!

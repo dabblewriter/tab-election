@@ -10,5 +10,5 @@ export declare type Tab<T = any> = {
     onState: (listener: OnState<T>) => Unsubscribe;
     close: () => void;
 };
-export declare function waitForLeadership<T = any>(onLeadership: Callback): Tab<T>;
-export declare function waitForLeadership<T = any>(name: string, onLeadership: Callback): Tab<T>;
+export declare function waitForLeadership<T = any>(onLeadership?: Callback): Tab<T>;
+export declare function waitForLeadership<T = any>(name: string, onLeadership?: Callback): Tab<T>;
