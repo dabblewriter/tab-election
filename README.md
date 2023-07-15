@@ -63,3 +63,26 @@ const tab = waitForLeadership('namespace', () => {
 
 tab.onState(state => console.log('The leader is connected to the server?', state.connected));
 ```
+
+To allow tabs to call methods on the leader (including the leader), use the `call()` method. The return result is always
+asyncronous. The API that is callable should be returned from the `waitForLeadership` callback. If the leader has
+established a connection to the server and/or database, this may be used for other tabs to get/save data through that
+single connection.
+
+```js
+import { waitForLeadership } from 'tab-election';
+
+const tab = waitForLeadership('namespace', () => {
+  return {
+    saveData(data) {
+      // ...
+      return true;
+    }
+  }
+});
+
+const result = await tab.call('saveData', { myData: 'foobar' });
+if (result === true) {
+  console.log('Successfully saved');
+}
+```

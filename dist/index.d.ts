@@ -1,10 +1,11 @@
 export declare type Callback = () => any;
 export declare type Unsubscribe = () => void;
-export declare type OnReceive = (msg: any, fromLeader: boolean) => void;
+export declare type OnReceive = (msg: any) => void;
 export declare type OnState<T> = (state: T) => void;
 export declare type Tab<T = any> = {
+    call: (name: string, ...rest: any) => void;
     send: (msg: any) => void;
-    onReceive: (listener: OnReceive, fromLeader: boolean) => Unsubscribe;
+    onReceive: (listener: OnReceive) => Unsubscribe;
     state: () => T | ((state: T) => void);
     onState: (listener: OnState<T>) => Unsubscribe;
     close: () => void;

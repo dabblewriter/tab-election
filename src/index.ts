@@ -6,17 +6,20 @@ const PROMOTE = 'tabPromote';
 const PING = 'ping';
 const PONG = 'pong';
 const ELECTION = 'election';
+const CALL = 'call';
+const RETURN = 'return';
 const STATE = 'state';
 const RECEIVE = 'receive';
 const DONT_RECEIVE = {};
 
 export type Callback = () => any;
 export type Unsubscribe = () => void;
-export type OnReceive = (msg: any, fromLeader: boolean) => void;
+export type OnReceive = (msg: any) => void;
 export type OnState<T> = (state: T) => void;
 export type Tab<T = any> = {
+  call: (name: string, ...rest: any) => void;
   send: (msg: any) => void;
-  onReceive: (listener: OnReceive, fromLeader: boolean) => Unsubscribe;
+  onReceive: (listener: OnReceive) => Unsubscribe;
   state: () => T | ((state: T) => void);
   onState: (listener: OnState<T>) => Unsubscribe;
   close: () => void;
@@ -33,16 +36,26 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   const tabs = new Map([[ id, Date.now() ]]);
   const onReceives = new Set<OnReceive>();
   const onStates = new Set<OnState<T>>();
+  const callDeferreds = new Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void }>();
   let leaderId = '';
   let heartbeatTimeout = 0;
   let leaderState: T;
   let channel: BroadcastChannel;
+  let callCount = 0;
+  let api: any;
   createChannel();
   self.addEventListener('beforeunload', close);
   const callbacks = {
     [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [PROMOTE]: onTabPromote, [ELECTION]: onElection,
-    [STATE]: onUserState, [RECEIVE]: onUserMessage,
+    [CALL]: onCall, [RETURN]: onReturn, [STATE]: onUserState, [RECEIVE]: onUserMessage,
   }
+  const call = (name: string, ...rest: any) => {
+    return new Promise((resolve, reject) => {
+      callDeferreds.set(++callCount, { resolve, reject });
+      if (isLeader()) onCall(id, callCount, name, ...rest);
+      else postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
+    })
+  };
   const send = (msg: any) => postMessage(RECEIVE, msg, DONT_RECEIVE);
   const onReceive = (onReceive: OnReceive): Unsubscribe => {
     onReceives.add(onReceive);
@@ -59,7 +72,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     onStates.add(onState);
     return () => onStates.delete(onState);
   }
-  const tab = { id, leaderId, tabs, send, onReceive, state, onState, close };
+  const tab = { id, leaderId, tabs, call, send, onReceive, state, onState, close };
 
   // Start the heartbeat & initial ping to discover
   sendHeartbeat();
@@ -152,8 +165,28 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     }
   }
 
-  function onUserMessage(msg: any, fromLeader: boolean) {
-    onReceives.forEach(listener => listener(msg, fromLeader));
+  async function onCall(id: string, callNumber: number, name: string, ...rest: any[]) {
+    if (!isLeader()) return;
+    try {
+      if (typeof api?.[name] !== 'function') throw new Error('Invalid API method');
+      const results = await api[name](...rest);
+      postMessage(RETURN, id, callNumber, null, results);
+    } catch (e) {
+      postMessage(RETURN, id, callNumber, e);
+    }
+  }
+
+  function onReturn(forTab: string, callNumber: number, error: any, results: any) {
+    if (id !== forTab) return;
+    const deferred = callDeferreds.get(callNumber);
+    if (!deferred) return console.error('No deferred found for call', callNumber);
+    callDeferreds.delete(callNumber);
+    if (error) deferred.reject(error);
+    else deferred.resolve(results);
+  }
+
+  function onUserMessage(msg: any) {
+    onReceives.forEach(listener => listener(msg));
   }
 
   function onUserState(state: any) {
@@ -172,7 +205,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     setTimeout(() => {
       if (isLeader() && onLeadership) {
         // We won!
-        onLeadership();
+        api = onLeadership();
         onLeadership = null; // Don't let it get called multiple times
       }
     }, PING_TIMEOUT);
