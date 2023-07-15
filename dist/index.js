@@ -5,6 +5,9 @@ const PROMOTE = 'tabPromote';
 const PING = 'ping';
 const PONG = 'pong';
 const ELECTION = 'election';
+const STATE = 'state';
+const RECEIVE = 'receive';
+const DONT_RECEIVE = {};
 export function waitForLeadership(name, onLeadership) {
     if (typeof name === 'function') {
         onLeadership = name;
@@ -12,15 +15,37 @@ export function waitForLeadership(name, onLeadership) {
     }
     const id = createTabId();
     const tabs = new Map([[id, Date.now()]]);
+    const onReceives = new Set();
+    const onStates = new Set();
     let leaderId = '';
     let heartbeatTimeout = 0;
+    let leaderState;
     let channel;
     createChannel();
     self.addEventListener('beforeunload', close);
     const callbacks = {
         [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [PROMOTE]: onTabPromote, [ELECTION]: onElection,
+        [STATE]: onUserState, [RECEIVE]: onUserMessage,
     };
-    const tab = { id, leaderId, tabs, close };
+    const send = (msg) => postMessage(RECEIVE, msg, DONT_RECEIVE);
+    const onReceive = (onReceive) => {
+        onReceives.add(onReceive);
+        return () => onReceives.delete(onReceive);
+    };
+    const state = (state) => {
+        if (state === undefined)
+            return leaderState;
+        if (!isLeader())
+            return console.error('Only the leader can set state');
+        leaderState = state;
+        postMessage(STATE, state, DONT_RECEIVE);
+        onUserState(state);
+    };
+    const onState = (onState) => {
+        onStates.add(onState);
+        return () => onStates.delete(onState);
+    };
+    const tab = { id, leaderId, tabs, send, onReceive, state, onState, close };
     // Start the heartbeat & initial ping to discover
     sendHeartbeat();
     return tab;
@@ -42,9 +67,13 @@ export function waitForLeadership(name, onLeadership) {
     }
     function postMessage(name, ...rest) {
         const data = { name, rest };
+        const sendSelf = rest[rest.length - 1] !== DONT_RECEIVE;
+        if (!sendSelf)
+            rest.pop();
         try {
             channel.postMessage(data);
-            onMessage(new MessageEvent('message', { data }));
+            if (sendSelf)
+                onMessage(new MessageEvent('message', { data }));
         }
         catch (e) {
             // If the channel is closed, create a new one and try again
@@ -76,6 +105,9 @@ export function waitForLeadership(name, onLeadership) {
         }, PING_TIMEOUT);
     }
     function onPing(tabId, isTabLeader) {
+        if (isLeader() && leaderState !== undefined && !tabs.has(tabId)) {
+            tab.state(leaderState); // When a new tab joins, send the leader state
+        }
         const now = Date.now();
         tabs.set(tabId, now);
         if (tabId !== id) {
@@ -97,6 +129,13 @@ export function waitForLeadership(name, onLeadership) {
             postMessage(PROMOTE, id);
             onTabPromote(id);
         }
+    }
+    function onUserMessage(msg, fromLeader) {
+        onReceives.forEach(listener => listener(msg, fromLeader));
+    }
+    function onUserState(state) {
+        leaderState = state;
+        onStates.forEach(listener => listener(state));
     }
     function onTabClose(id) {
         tabs.delete(id);
