@@ -20,7 +20,7 @@ export type Tab<T = any> = {
   call: <R>(name: string, ...rest: any) => Promise<R>;
   send: (msg: any) => void;
   onReceive: (listener: OnReceive) => Unsubscribe;
-  state: () => T | ((state: T) => void);
+  state: (() => T) | ((state: T) => void);
   onState: (listener: OnState<T>) => Unsubscribe;
   close: () => void;
 }
