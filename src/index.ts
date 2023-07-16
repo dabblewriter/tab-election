@@ -17,7 +17,7 @@ export type Unsubscribe = () => void;
 export type OnReceive = (msg: any) => void;
 export type OnState<T> = (state: T) => void;
 export type Tab<T = any> = {
-  call: (name: string, ...rest: any) => void;
+  call: <R>(name: string, ...rest: any) => Promise<R>;
   send: (msg: any) => void;
   onReceive: (listener: OnReceive) => Unsubscribe;
   state: () => T | ((state: T) => void);
@@ -37,7 +37,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   const tabs = new Map([[ id, Date.now() ]]);
   const onReceives = new Set<OnReceive>();
   const onStates = new Set<OnState<T>>();
-  const callDeferreds = new Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void }>();
+  const callDeferreds = new Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void, timeout: number }>();
   let leaderId = '';
   let heartbeatTimeout = 0;
   let leaderState: T;
@@ -50,10 +50,14 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [PROMOTE]: onTabPromote, [ELECTION]: onElection,
     [CALL]: onCall, [RETURN]: onReturn, [STATE]: onUserState, [RECEIVE]: onUserMessage,
   };
-  const call = (name: string, ...rest: any) => {
-    if (!leaderId) return console.error('No leader to call');
-    return new Promise((resolve, reject) => {
-      callDeferreds.set(++callCount, { resolve, reject });
+  const call = <R>(name: string, ...rest: any) => {
+    if (!leaderId) return Promise.reject(new Error('No leader to call'));
+    return new Promise<R>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        callDeferreds.delete(callCount);
+        reject(new Error('Call timed out'));
+      }, 30_000);
+      callDeferreds.set(++callCount, { resolve, reject, timeout });
       if (isLeader()) onCall(id, callCount, name, ...rest);
       else postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
     })
@@ -187,6 +191,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     if (id !== forTab) return;
     const deferred = callDeferreds.get(callNumber);
     if (!deferred) return console.error('No deferred found for call', callNumber);
+    clearTimeout(deferred.timeout);
     callDeferreds.delete(callNumber);
     if (error) deferred.reject(error);
     else deferred.resolve(results);
