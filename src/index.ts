@@ -16,11 +16,12 @@ export type Callback = () => any;
 export type Unsubscribe = () => void;
 export type OnReceive = (msg: any) => void;
 export type OnState<T> = (state: T) => void;
-export type Tab<T = any> = {
+export interface Tab<T = Record<string, any>> {
   call: <R>(name: string, ...rest: any) => Promise<R>;
   send: (msg: any) => void;
   onReceive: (listener: OnReceive) => Unsubscribe;
-  state: (() => T) | ((state: T) => void);
+  state(): T;
+  state(state: T): void;
   onState: (listener: OnState<T>) => Unsubscribe;
   close: () => void;
 }
