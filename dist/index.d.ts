@@ -3,7 +3,7 @@ export declare type Unsubscribe = () => void;
 export declare type OnReceive = (msg: any) => void;
 export declare type OnState<T> = (state: T) => void;
 export declare type Tab<T = any> = {
-    call: (name: string, ...rest: any) => void;
+    call: <R>(name: string, ...rest: any) => Promise<R>;
     send: (msg: any) => void;
     onReceive: (listener: OnReceive) => Unsubscribe;
     state: () => T | ((state: T) => void);

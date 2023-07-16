@@ -35,9 +35,13 @@ export function waitForLeadership(name, onLeadership) {
     };
     const call = (name, ...rest) => {
         if (!leaderId)
-            return console.error('No leader to call');
+            return Promise.reject(new Error('No leader to call'));
         return new Promise((resolve, reject) => {
-            callDeferreds.set(++callCount, { resolve, reject });
+            const timeout = setTimeout(() => {
+                callDeferreds.delete(callCount);
+                reject(new Error('Call timed out'));
+            }, 30000);
+            callDeferreds.set(++callCount, { resolve, reject, timeout });
             if (isLeader())
                 onCall(id, callCount, name, ...rest);
             else
@@ -174,6 +178,7 @@ export function waitForLeadership(name, onLeadership) {
         const deferred = callDeferreds.get(callNumber);
         if (!deferred)
             return console.error('No deferred found for call', callNumber);
+        clearTimeout(deferred.timeout);
         callDeferreds.delete(callNumber);
         if (error)
             deferred.reject(error);
