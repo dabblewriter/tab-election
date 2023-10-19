@@ -101,6 +101,9 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     clearTimeout(heartbeatTimeout);
     if (!isSpectator) postMessage(CLOSE, id);
     if (leaderId === id) postMessage(ELECTION);
+    tabs.clear();
+    onReceives.clear();
+    onStates.clear();
     channel.close();
   }
 
