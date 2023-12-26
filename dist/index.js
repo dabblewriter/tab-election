@@ -1,10 +1,10 @@
 const HEARTBEAT_INTERVAL = 1000;
 const PING_TIMEOUT = 50;
 const CLOSE = 'tabClose';
-const PROMOTE = 'tabPromote';
 const PING = 'ping';
 const PONG = 'pong';
 const ELECTION = 'election';
+const CAMPAIGN = 'campaign';
 const CALL = 'call';
 const RETURN = 'return';
 const STATE = 'state';
@@ -21,31 +21,58 @@ export function waitForLeadership(name, onLeadership) {
     const onReceives = new Set();
     const onStates = new Set();
     const callDeferreds = new Map();
+    const queuedCalls = new Map();
     let leaderId = '';
     let heartbeatTimeout = 0;
     let leaderState;
     let channel;
     let callCount = 0;
     let api;
+    let election = false;
     createChannel();
     self.addEventListener('beforeunload', close);
     const callbacks = {
-        [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [PROMOTE]: onTabPromote, [ELECTION]: onElection,
+        [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [ELECTION]: onElection, [CAMPAIGN]: onCampaign,
         [CALL]: onCall, [RETURN]: onReturn, [STATE]: onUserState, [RECEIVE]: onUserMessage,
     };
+    const setLeader = (newLeaderId) => {
+        if (leaderId === newLeaderId)
+            return;
+        tab.leaderId = leaderId = newLeaderId;
+        callDeferreds.forEach(({ reject }, callCount) => {
+            if (queuedCalls.has(callCount))
+                return;
+            callDeferreds.delete(callCount);
+            reject(new Error('Leader lost'));
+        });
+    };
+    const runCallsAfterElection = () => {
+        if (queuedCalls.size) {
+            queuedCalls.forEach(({ name, rest }, callCount) => {
+                if (isLeader())
+                    onCall(id, callCount, name, ...rest);
+                else
+                    postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
+            });
+            queuedCalls.clear();
+        }
+    };
     const call = (name, ...rest) => {
-        if (!leaderId)
-            return Promise.reject(new Error('No leader to call'));
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 callDeferreds.delete(callCount);
                 reject(new Error('Call timed out'));
             }, 30000);
             callDeferreds.set(++callCount, { resolve, reject, timeout });
-            if (isLeader())
-                onCall(id, callCount, name, ...rest);
-            else
-                postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
+            if (leaderId && !election) {
+                if (isLeader())
+                    onCall(id, callCount, name, ...rest);
+                else
+                    postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
+            }
+            else {
+                queuedCalls.set(callCount, { name, rest });
+            }
         });
     };
     const send = (msg) => postMessage(RECEIVE, msg, DONT_RECEIVE);
@@ -87,6 +114,9 @@ export function waitForLeadership(name, onLeadership) {
             postMessage(CLOSE, id);
         if (leaderId === id)
             postMessage(ELECTION);
+        tabs.clear();
+        onReceives.clear();
+        onStates.clear();
         channel.close();
     }
     function isLeader() {
@@ -143,28 +173,19 @@ export function waitForLeadership(name, onLeadership) {
             postMessage(PONG, id, isLeader());
         }
         if (isTabLeader)
-            tab.leaderId = leaderId = tabId;
+            setLeader(tabId);
     }
     function onPong(tabId, isTabLeader) {
         tabs.set(tabId, Date.now());
         if (isTabLeader)
-            tab.leaderId = leaderId = tabId;
-    }
-    function onElection() {
-        tab.leaderId = leaderId = '';
-        const maxId = Array.from(tabs.keys()).sort().pop();
-        // if we think we should be the leader because our id is the max, send a message
-        if (id === maxId && !isSpectator) {
-            postMessage(PROMOTE, id);
-            onTabPromote(id);
-        }
+            setLeader(tabId);
     }
     async function onCall(id, callNumber, name, ...rest) {
         if (!isLeader())
             return;
         try {
             if (typeof (api === null || api === void 0 ? void 0 : api[name]) !== 'function')
-                throw new Error('Invalid API method');
+                throw new Error(`Invalid API method "${name}"`);
             const results = await api[name](...rest);
             postMessage(RETURN, id, callNumber, null, results);
         }
@@ -195,18 +216,30 @@ export function waitForLeadership(name, onLeadership) {
     function onTabClose(id) {
         tabs.delete(id);
     }
-    function onTabPromote(newLeaderId) {
-        if (!leaderId || leaderId < newLeaderId) {
-            tab.leaderId = leaderId = newLeaderId;
+    function onElection() {
+        election = true;
+        setLeader('');
+        const maxId = Array.from(tabs.keys()).sort().pop();
+        // if we think we should be the leader because our id is the max, send a message
+        if (id === maxId && !isSpectator) {
+            postMessage(CAMPAIGN, id);
+            onCampaign(id);
         }
-        if (isSpectator)
-            return;
+    }
+    function onCampaign(newLeaderId) {
+        if (!leaderId || leaderId < newLeaderId) {
+            setLeader(newLeaderId);
+        }
         setTimeout(() => {
-            if (isLeader() && onLeadership) {
-                // We won!
-                api = onLeadership();
-                onLeadership = null; // Don't let it get called multiple times
+            election = false;
+            if (!isSpectator && isLeader()) {
+                if (onLeadership) {
+                    // We won!
+                    api = onLeadership();
+                    onLeadership = null; // Don't let it get called multiple times
+                }
             }
+            runCallsAfterElection();
         }, PING_TIMEOUT);
     }
 }
