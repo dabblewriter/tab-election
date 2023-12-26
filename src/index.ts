@@ -35,11 +35,14 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   }
   const isSpectator = !onLeadership;
   const id = createTabId();
-  const tabs = new Map([[ id, Date.now() ]]);
+  const tabs = new Map([[id, Date.now()]]);
   const onReceives = new Set<OnReceive>();
   const onStates = new Set<OnState<T>>();
-  const callDeferreds = new Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void, timeout: number }>();
-  const queuedCalls = new Map<number, { name: string, rest: any[] }>();
+  const callDeferreds = new Map<
+    number,
+    { resolve: (value: any) => void; reject: (reason?: any) => void; timeout: number }
+  >();
+  const queuedCalls = new Map<number, { name: string; rest: any[] }>();
   let leaderId = '';
   let heartbeatTimeout = 0;
   let leaderState: T;
@@ -50,8 +53,15 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   createChannel();
   self.addEventListener('beforeunload', close);
   const callbacks = {
-    [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [ELECTION]: onElection, [CAMPAIGN]: onCampaign,
-    [CALL]: onCall, [RETURN]: onReturn, [STATE]: onUserState, [RECEIVE]: onUserMessage,
+    [PING]: onPing,
+    [PONG]: onPong,
+    [CLOSE]: onTabClose,
+    [ELECTION]: onElection,
+    [CAMPAIGN]: onCampaign,
+    [CALL]: onCall,
+    [RETURN]: onReturn,
+    [STATE]: onUserState,
+    [RECEIVE]: onUserMessage,
   };
   const setLeader = (newLeaderId: string) => {
     if (leaderId === newLeaderId) return;
@@ -84,13 +94,13 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
       } else {
         queuedCalls.set(callCount, { name, rest });
       }
-    })
+    });
   };
   const send = (msg: any) => postMessage(RECEIVE, msg, DONT_RECEIVE);
   const onReceive = (onReceive: OnReceive): Unsubscribe => {
     onReceives.add(onReceive);
     return () => onReceives.delete(onReceive);
-  }
+  };
   const state = (state?: any) => {
     if (state === undefined) return leaderState;
     if (!isLeader()) return console.error('Only the leader can set state');
@@ -101,7 +111,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   const onState = (onState: OnState<T>): Unsubscribe => {
     onStates.add(onState);
     return () => onStates.delete(onState);
-  }
+  };
   const tab = { id, leaderId, tabs, call, send, onReceive, state, onState, close };
 
   // Start the heartbeat & initial ping to discover
@@ -151,7 +161,7 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   }
 
   function onMessage(event: MessageEvent) {
-    const { name, rest } = event.data as { name: keyof typeof callbacks, rest: any[] };
+    const { name, rest } = event.data as { name: keyof typeof callbacks; rest: any[] };
     callbacks[name].apply(null, rest);
   }
 
@@ -256,15 +266,13 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
   }
 }
 
-const chars = (
-  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-).split('');
+const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 function createTabId() {
   let id = '';
   let length = 16;
   while (length--) {
-    id += chars[Math.random() * chars.length | 0];
+    id += chars[(Math.random() * chars.length) | 0];
   }
   return id;
 }
