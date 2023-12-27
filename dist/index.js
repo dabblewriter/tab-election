@@ -32,8 +32,15 @@ export function waitForLeadership(name, onLeadership) {
     createChannel();
     self.addEventListener('beforeunload', close);
     const callbacks = {
-        [PING]: onPing, [PONG]: onPong, [CLOSE]: onTabClose, [ELECTION]: onElection, [CAMPAIGN]: onCampaign,
-        [CALL]: onCall, [RETURN]: onReturn, [STATE]: onUserState, [RECEIVE]: onUserMessage,
+        [PING]: onPing,
+        [PONG]: onPong,
+        [CLOSE]: onTabClose,
+        [ELECTION]: onElection,
+        [CAMPAIGN]: onCampaign,
+        [CALL]: onCall,
+        [RETURN]: onReturn,
+        [STATE]: onUserState,
+        [RECEIVE]: onUserMessage,
     };
     const setLeader = (newLeaderId) => {
         if (leaderId === newLeaderId)
@@ -58,20 +65,21 @@ export function waitForLeadership(name, onLeadership) {
         }
     };
     const call = (name, ...rest) => {
+        const count = ++callCount;
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
-                callDeferreds.delete(callCount);
+                callDeferreds.delete(count);
                 reject(new Error('Call timed out'));
             }, 30000);
-            callDeferreds.set(++callCount, { resolve, reject, timeout });
+            callDeferreds.set(count, { resolve, reject, timeout });
             if (leaderId && !election) {
                 if (isLeader())
-                    onCall(id, callCount, name, ...rest);
+                    onCall(id, count, name, ...rest);
                 else
-                    postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
+                    postMessage(CALL, id, count, name, ...rest, DONT_RECEIVE);
             }
             else {
-                queuedCalls.set(callCount, { name, rest });
+                queuedCalls.set(count, { name, rest });
             }
         });
     };
@@ -243,12 +251,12 @@ export function waitForLeadership(name, onLeadership) {
         }, PING_TIMEOUT);
     }
 }
-const chars = ('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ').split('');
+const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 function createTabId() {
     let id = '';
     let length = 16;
     while (length--) {
-        id += chars[Math.random() * chars.length | 0];
+        id += chars[(Math.random() * chars.length) | 0];
     }
     return id;
 }

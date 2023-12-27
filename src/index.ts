@@ -82,17 +82,18 @@ export function waitForLeadership<T = any>(name: string | Callback, onLeadership
     }
   };
   const call = <R>(name: string, ...rest: any) => {
+    const count = ++callCount;
     return new Promise<R>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        callDeferreds.delete(callCount);
+        callDeferreds.delete(count);
         reject(new Error('Call timed out'));
       }, 30_000);
-      callDeferreds.set(++callCount, { resolve, reject, timeout });
+      callDeferreds.set(count, { resolve, reject, timeout });
       if (leaderId && !election) {
-        if (isLeader()) onCall(id, callCount, name, ...rest);
-        else postMessage(CALL, id, callCount, name, ...rest, DONT_RECEIVE);
+        if (isLeader()) onCall(id, count, name, ...rest);
+        else postMessage(CALL, id, count, name, ...rest, DONT_RECEIVE);
       } else {
-        queuedCalls.set(callCount, { name, rest });
+        queuedCalls.set(count, { name, rest });
       }
     });
   };
