@@ -1,8 +1,8 @@
 # Tab Election
 
-Provides leadership election in the browser across tabs *and* workers using BroadcastChannel. It works in modern browsers. Use a (polyfill)[https://www.npmjs.com/package/broadcastchannel-polyfill] if you need to support older browsers.
+Provides leadership election and communication in the browser across tabs *and* workers using the Locks API and BroadcastChannel. It works in modern browsers.
 
-It has been optimized so tabs will resolve leadership very quickly, in about 50ms, minimizing a delay in database or server connections and app startup time. After that, when the existing leader is closed, it will take another 50ms to elect a new leader. The exception is when a tab crashes when it may take a second or two.
+The [Locks API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) allows us to have a very reliable leadership election, with virtually no delay in database or server connections and app startup time. When the existing leader is closed, the next tab will become the new leader immediately. The Tab interface allows calls and messages to be queued before a leader is elected and sent afterwards. The Tab interface supports everything you need to have all tabs communicate with one leader for loading, saving, and syncing data between tabs, including calling API methods the leader provides, broadcasting messages to other tabs, and state syncing.
 
 ## Install
 
@@ -13,9 +13,11 @@ npm install --save tab-election
 ## API
 
 ```js
-import { waitForLeadership } from 'tab-election';
+import { Tab } from 'tab-election';
 
-waitForLeadership(() => {
+const tab = new Tab();
+
+tab.waitForLeadership(() => {
   // establish websocket, database connection, or whatever is needed as the leader
 });
 ```
@@ -23,10 +25,17 @@ waitForLeadership(() => {
 If a tab needs to stop being a leader (or waiting to become one) you can call close on the returned elector and allow garbage collection.
 
 ```js
-import { waitForLeadership } from 'tab-election';
+import { Tab } from 'tab-election';
 
-const tab = waitForLeadership('namespace', () => {
-  // establish websocket, database connection, or whatever is needed as the leader
+const tab = new Tab('namespace');
+
+tab.waitForLeadership(() => {
+  // establish websocket, database connection, or whatever is needed as the leader, return an API
+  return {
+    async loadData() {
+      // return await db.load(...);
+    }
+  }
 });
 
 // ... sometime later, perhaps a tab is stale or goes into another state that doesn't need/want leadership
@@ -36,14 +45,11 @@ tab.close();
 To communicate between tabs, send and receive messages.
 
 ```js
-import { waitForLeadership } from 'tab-election';
+import { Tab } from 'tab-election';
 
-const tab = waitForLeadership('namespace', () => {
-  // establish websocket, database connection, or whatever is needed as the leader
-});
+const tab = new Tab('namespace');
 
-tab.onReceive(msg => console.log(msg));
-
+tab.addEventListener('message', event => console.log(event.data));
 tab.send('This is a test'); // will not send to self, only to other tabs
 ```
 
@@ -51,17 +57,22 @@ To keep state (any important data) between the current leader and the other tabs
 other tabs know when the leader is syncing, whether it is online, or if any errors have occured. `state()` will return
 the current state of the leader and `state(data)` will set the current state if the tab is the current leader.
 
-```js
-import { waitForLeadership } from 'tab-election';
+The state object can contain anything that is supported by the [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm)
+including Dates, RegExes, Sets, and Maps.
 
-const tab = waitForLeadership('namespace', () => {
+```js
+import { Tab } from 'tab-election';
+
+const tab = new Tab('namespace');
+
+tab.waitForLeadership(() => {
   // establish websocket, database connection, or whatever is needed as the leader
-  tab.state({ connected: false });
+  tab.setState({ connected: false });
   // connect to the server ...
-  tab.state({ connected: true });
+  tab.setState({ connected: true });
 });
 
-tab.onState(state => console.log('The leader is connected to the server?', state.connected));
+tab.addEventListener('state', event => console.log('The leader is connected to the server?', event.data.connected));
 ```
 
 To allow tabs to call methods on the leader (including the leader), use the `call()` method. The return result is always
@@ -70,9 +81,14 @@ established a connection to the server and/or database, this may be used for oth
 single connection.
 
 ```js
-import { waitForLeadership } from 'tab-election';
+import { Tab } from 'tab-election';
 
-const tab = waitForLeadership('namespace', () => {
+const tab = new Tab('namespace');
+
+tab.waitForLeadership(async () => {
+  // Can have async instructions here. Calls to `call` in any tab will be queued until the API is returned.
+  const db = await connectToTheDatabase();
+
   return {
     saveData(data) {
       // ...
@@ -88,13 +104,13 @@ if (result === true) {
 ```
 
 If a tab wants to make calls to the leader, send and receive messages, and know the state, but it does not want to ever
-become the leader, then simply don't pass in a callback to `waitForLeadership`. This is useful when workers are used for
-leadership and UI contexts make the requests and display state.
+become the leader, then don't call `waitForLeadership`. This is useful when workers are used for leadership and UI
+contexts make the requests and display state.
 
 ```js
-import { waitForLeadership } from 'tab-election';
+import { Tab } from 'tab-election';
 
-const tab = waitForLeadership('namespace');
+const tab = new Tab('namespace');
 
 const result = await tab.call('saveData', { myData: 'foobar' });
 if (result === true) {

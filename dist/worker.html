@@ -5,7 +5,6 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="https://assets-global.website-files.com/61a901161719c64106fde73b/61ae651930ece3391f5c69fd_5c47a7047febe4a67877c8be_favicon.png" rel="shortcut icon" type="image/x-icon"/>
   <title>Test</title>
 </head>
 <body>
@@ -17,6 +16,12 @@
     worker.addEventListener('message', e => {
       out.innerText = e.data;
     });
+  </script>
+
+  <script type="module">
+    import { Tab } from './index.js';
+    const tab = new Tab('test');
+    window.tab = tab;
   </script>
 </body>
 </html>

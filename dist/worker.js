@@ -1,15 +1,14 @@
-import { waitForLeadership } from './index.js';
-const tab = waitForLeadership('test', () => {
+import { Tab } from './index.js';
+const tab = new Tab('test');
+tab.waitForLeadership(() => {
   console.log('Became leader!');
 });
-let lastJson = '';
+let lastText = '';
 setInterval(() => {
-  const json = JSON.stringify(tab, (key, value) => {
-    if (value instanceof Map) return Object.fromEntries(value.entries());
-    return value;
-  }, '  ');
-  if (json !== lastJson) {
-    postMessage(json);
-    lastJson = json;
+  const text = tab.isLeader ? 'Leader' : 'Not leader';
+  if (text !== lastText) {
+    console.log(text);
+    postMessage(text);
+    lastText = text;
   }
 }, 50);
