@@ -128,10 +128,14 @@ _Tab_name = new WeakMap(), _Tab_id = new WeakMap(), _Tab_callerId = new WeakMap(
     __classPrivateFieldSet(this, _Tab_channel, new BroadcastChannel(`tab-${__classPrivateFieldGet(this, _Tab_name, "f")}`), "f");
     __classPrivateFieldGet(this, _Tab_channel, "f").onmessage = e => __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_onMessage).call(this, e);
 }, _Tab_postMessage = function _Tab_postMessage(to, name, ...rest) {
+    // Don't send if there's no one to send to
+    if (!to || to instanceof Set && !to.size)
+        return;
     const data = { to, name, rest };
+    const toMe = to !== To.Others && __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_isToMe).call(this, to);
     try {
         __classPrivateFieldGet(this, _Tab_channel, "f").postMessage(data);
-        if (to !== To.Others && __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_isToMe).call(this, to)) {
+        if (toMe) {
             __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_onMessage).call(this, new MessageEvent('message', { data }));
         }
     }

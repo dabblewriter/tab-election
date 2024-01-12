@@ -137,10 +137,13 @@ export class Tab<T = Record<string, any>> extends EventTarget {
   }
 
   #postMessage(to: string | Set<string>, name: string, ...rest: any[]) {
+    // Don't send if there's no one to send to
+    if (!to || to instanceof Set && !to.size) return;
     const data = { to, name, rest };
+    const toMe = to !== To.Others && this.#isToMe(to);
     try {
       this.#channel.postMessage(data);
-      if (to !== To.Others && this.#isToMe(to)) {
+      if (toMe) {
         this.#onMessage(new MessageEvent('message', { data }));
       }
     } catch (e) {
