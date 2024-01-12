@@ -1,4 +1,3 @@
-
 export type OnLeadership = (relinquish: Unsubscribe) => any;
 export type Unsubscribe = () => void;
 export type OnReceive = (msg: any) => void;
@@ -10,7 +9,11 @@ interface Deferred {
   timeout: number;
 }
 
-const DONT_RECEIVE = {};
+export enum To {
+  All = 'all',
+  Others = 'others',
+  Leader = 'leader',
+}
 
 /**
  * A Tab is an interfaces to synchronize state and messages between tabs. It uses BroadcastChannel and the Lock API.
@@ -21,8 +24,9 @@ export class Tab<T = Record<string, any>> extends EventTarget {
 
   #name: string;
   #id: string;
+  #callerId: string;
   #callDeferreds = new Map<number, Deferred>();
-  #queuedCalls = new Map<number, { id: string, name: string; rest: any[] }>();
+  #queuedCalls = new Map<number, { id: string; name: string; rest: any[] }>();
   #channel: BroadcastChannel;
   #isLeader = false;
   #isLeaderReady = false;
@@ -37,8 +41,16 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     this.#state = {} as T;
     this.#createChannel();
     this.hasLeader().then(hasLeader => {
-      if (hasLeader) this.#postMessage('onSendState', this.#id, DONT_RECEIVE);
+      if (hasLeader) this.#postMessage(To.Leader, 'onSendState', this.#id);
     });
+  }
+
+  get id() {
+    return this.#id;
+  }
+
+  get name() {
+    return this.#name;
   }
 
   get isLeader() {
@@ -49,13 +61,17 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     return navigator.locks.request(`tab-${this.#name}`, { ifAvailable: true }, async lock => lock === null);
   }
 
+  getCurrentCallerId() {
+    return this.#callerId;
+  }
+
   getState() {
     return this.#state;
   }
   setState(state: T) {
     if (!this.isLeader) throw new Error('Only the leader can set state');
     this.#onState(state);
-    this.#postMessage('onState', state, DONT_RECEIVE);
+    this.#postMessage(To.Others, 'onState', state);
   }
 
   async waitForLeadership(onLeadership: OnLeadership): Promise<void> {
@@ -69,8 +85,8 @@ export class Tab<T = Record<string, any>> extends EventTarget {
         this.#queuedCalls.forEach(({ id, name, rest }, callNumber) => this.#onCall(id, callNumber, name, ...rest));
         this.#queuedCalls.clear();
         this.dispatchEvent(new Event('leadershipchange'));
-        this.#postMessage('onLeader', this.#state, DONT_RECEIVE);
-        return new Promise<void>(resolve => this.relinquishLeadership = () => resolve()); // Never resolve
+        this.#postMessage(To.Others, 'onLeader', this.#state);
+        return new Promise<void>(resolve => (this.relinquishLeadership = () => resolve())); // Never resolve
       });
     } finally {
       this.#isLeader = false;
@@ -89,16 +105,16 @@ export class Tab<T = Record<string, any>> extends EventTarget {
       this.#callDeferreds.set(callNumber, { resolve, reject, timeout });
       if (this.isLeader && this.#isLeaderReady) {
         this.#onCall(this.#id, callNumber, name, ...rest);
-      } else if (!this.isLeader && await this.hasLeader()) {
-        this.#postMessage('onCall', this.#id, callNumber, name, ...rest, DONT_RECEIVE);
+      } else if (!this.isLeader && (await this.hasLeader())) {
+        this.#postMessage(To.Leader, 'onCall', this.#id, callNumber, name, ...rest);
       } else {
         this.#queuedCalls.set(callNumber, { id: this.#id, name, rest });
       }
     });
   }
 
-  send(data: any): void {
-    this.#postMessage('onSend', data, DONT_RECEIVE);
+  send(data: any, to = To.Others): void {
+    this.#postMessage(to, 'onSend', data);
   }
 
   close(): void {
@@ -108,29 +124,37 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     this.#channel.onmessage = null;
   }
 
+  #isToMe(to: string | Set<string>) {
+    if (typeof to === 'string') {
+      return (to === To.Leader && this.#isLeader) || to === this.#id || to === To.All || to === To.Others;
+    }
+    return to.has(this.#id);
+  }
+
   #createChannel() {
     this.#channel = new BroadcastChannel(`tab-${this.#name}`);
     this.#channel.onmessage = e => this.#onMessage(e);
   }
 
-  #postMessage(name: string, ...rest: any[]) {
-    const sendSelf = rest[rest.length - 1] !== DONT_RECEIVE;
-    if (!sendSelf) rest.pop();
-    const data = { name, rest };
+  #postMessage(to: string | Set<string>, name: string, ...rest: any[]) {
+    const data = { to, name, rest };
     try {
       this.#channel.postMessage(data);
-      if (sendSelf) this.dispatchEvent(new MessageEvent('message', { data }));
+      if (to !== To.Others && this.#isToMe(to)) {
+        this.#onMessage(new MessageEvent('message', { data }));
+      }
     } catch (e) {
       // If the channel is closed, create a new one and try again
       if (e.name === 'InvalidStateError') {
         this.#createChannel();
-        this.#postMessage(name, ...rest);
+        this.#postMessage(to, name, ...rest);
       }
     }
   }
 
   #onMessage(event: MessageEvent) {
-    const { name, rest } = event.data as { name: string; rest: any[] };
+    const { to, name, rest } = event.data as { to: Set<string>; name: string; rest: any[] };
+    if (!this.#isToMe(to)) return;
     if (name === 'onCall') this.#onCall.apply(this, rest);
     else if (name === 'onReturn') this.#onReturn.apply(this, rest);
     else if (name === 'onState') this.#onState.apply(this, rest);
@@ -148,15 +172,17 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     }
     try {
       if (typeof this.#api?.[name] !== 'function') throw new Error(`Invalid API method "${name}"`);
-      const results = await this.#api[name](...rest);
-      this.#postMessage('onReturn', id, callNumber, null, results);
+      this.#callerId = id;
+      const promise = this.#api[name](...rest);
+      this.#callerId = undefined;
+      const results = await promise;
+      this.#postMessage(id, 'onReturn', callNumber, null, results);
     } catch (e) {
-      this.#postMessage('onReturn', id, callNumber, e);
+      this.#postMessage(id, 'onReturn', callNumber, e);
     }
   }
 
-  #onReturn(forTab: string, callNumber: number, error: any, results: any) {
-    if (this.#id !== forTab) return;
+  #onReturn(callNumber: number, error: any, results: any) {
     const deferred = this.#callDeferreds.get(callNumber);
     if (!deferred) return console.error('No deferred found for call', callNumber);
     clearTimeout(deferred.timeout);
@@ -165,8 +191,7 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     else deferred.resolve(results);
   }
 
-  #onState(data: T, id?: string) {
-    if (id && id !== this.#id) return;
+  #onState(data: T) {
     this.#state = data;
     this.dispatchEvent(new MessageEvent('state', { data }));
   }
@@ -177,14 +202,14 @@ export class Tab<T = Record<string, any>> extends EventTarget {
 
   #onSendState(id: string) {
     if (this.isLeader) {
-      this.#postMessage('onState', this.#state, id, DONT_RECEIVE);
+      this.#postMessage(id, 'onState', this.#state);
     }
   }
 
   #onLeader(state: T) {
     this.#onState(state);
     this.#queuedCalls.forEach(({ id, name, rest }, callNumber) =>
-      this.#postMessage('onCall', id, callNumber, name, ...rest)
+      this.#postMessage(To.Leader, 'onCall', callNumber, name, ...rest)
     );
     this.#queuedCalls.clear();
   }
