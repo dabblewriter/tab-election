@@ -113,7 +113,7 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     });
   }
 
-  send(data: any, to = To.Others): void {
+  send(data: any, to: string | Set<string> = To.Others): void {
     this.#postMessage(to, 'onSend', data);
   }
 
