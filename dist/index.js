@@ -71,17 +71,23 @@ export class Tab extends EventTarget {
     }
     async waitForLeadership(onLeadership) {
         this.relinquishLeadership(); // Cancel any previous leadership requests
+        const abortController = new AbortController();
+        const { signal } = abortController;
+        this.relinquishLeadership = () => abortController.abort('Aborted');
         try {
-            return await navigator.locks.request(`tab-${__classPrivateFieldGet(this, _Tab_name, "f")}`, async (lock) => {
+            // The signal will cancel the lock request before a lock is attained, the promise.resolve will cancel it after
+            return await navigator.locks.request(`tab-${__classPrivateFieldGet(this, _Tab_name, "f")}`, { signal }, async (lock) => {
                 __classPrivateFieldSet(this, _Tab_isLeader, true, "f");
+                // Never resolve until relinquishLeadership is called
+                const keepLockPromise = new Promise(resolve => (this.relinquishLeadership = () => resolve(true)));
                 __classPrivateFieldSet(this, _Tab_api, await onLeadership(this.relinquishLeadership), "f");
                 __classPrivateFieldSet(this, _Tab_isLeaderReady, true, "f");
                 __classPrivateFieldGet(this, _Tab_queuedCalls, "f").forEach(({ id, name, rest }, callNumber) => __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_onCall).call(this, id, callNumber, name, ...rest));
                 __classPrivateFieldGet(this, _Tab_queuedCalls, "f").clear();
                 this.dispatchEvent(new Event('leadershipchange'));
                 __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_postMessage).call(this, To.Others, 'onLeader', __classPrivateFieldGet(this, _Tab_state, "f"));
-                return new Promise(resolve => (this.relinquishLeadership = () => resolve())); // Never resolve
-            });
+                return keepLockPromise;
+            }).catch(e => e !== 'Aborted' && Promise.reject(e) || false);
         }
         finally {
             __classPrivateFieldSet(this, _Tab_isLeader, false, "f");
@@ -181,6 +187,7 @@ _Tab_name = new WeakMap(), _Tab_id = new WeakMap(), _Tab_callerId = new WeakMap(
         __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_postMessage).call(this, id, 'onReturn', callNumber, null, results);
     }
     catch (e) {
+        __classPrivateFieldSet(this, _Tab_callerId, undefined, "f");
         __classPrivateFieldGet(this, _Tab_instances, "m", _Tab_postMessage).call(this, id, 'onReturn', callNumber, e);
     }
 }, _Tab_onReturn = function _Tab_onReturn(callNumber, error, results) {

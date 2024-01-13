@@ -22,24 +22,83 @@ tab.waitForLeadership(() => {
 });
 ```
 
-If a tab needs to stop being a leader (or waiting to become one) you can call close on the returned elector and allow garbage collection.
+If a tab needs to stop being a leader (or waiting to become one) you can call `tab.relinquishLeadership()` or the
+function passed into `tab.waitForLeadership((relinquishLeadership) => { })`. To completely close all connections with
+other tabs and allow for garbage collection, call `tab.close()`.
 
 ```js
 import { Tab } from 'tab-election';
 
 const tab = new Tab('namespace');
 
-tab.waitForLeadership(() => {
+tab.waitForLeadership((relinquishLeadership) => {
   // establish websocket, database connection, or whatever is needed as the leader, return an API
   return {
     async loadData() {
       // return await db.load(...);
+    },
+    letItGo() {
+      relinquishLeadership();
     }
   }
 });
 
+if (somethingHappens) {
+  tab.relinquishLeadership();
+}
+
 // ... sometime later, perhaps a tab is stale or goes into another state that doesn't need/want leadership
 tab.close();
+```
+
+The `tab.waitForLeadership()` method can be async. Calls to the leader will be queued while the API is initialized. The
+`waitForLeadership` method returns a promise which will resolve with a `boolean`. If resolved with `true`, the
+leadership was relinquished while the tab was the leader. When `false`, it was relinquished before taking leadership.
+
+```js
+import { Tab } from 'tab-election';
+
+const tab = new Tab('namespace');
+
+tab.waitForLeadership(async () => {
+  // establish websocket, database connection, or whatever is needed as the leader, return an API
+  return {
+    async loadData() {
+      // return await db.load(...);
+    },
+  }
+}).then(wasLeader => {
+  console.log('This tab the current leader:', wasLeader);
+}, error => {
+  console.error('There was an error initializing the leader API', error);
+});
+```
+
+Errors thrown within API methods will be returned to the caller and thrown in that context. E.g. if a tab calls
+
+```js
+import { Tab } from 'tab-election';
+
+const tab = new Tab('namespace');
+
+tab.waitForLeadership(async () => {
+  // establish websocket, database connection, or whatever is needed as the leader, return an API
+  return {
+    async loadData() {
+      // This exception is forwarded on to the caller to handle
+      throw new Error('Cannot load the data');
+    },
+  }
+});
+
+async function loadData() {
+  try {
+    // This will recieve an error 'Cannot load the data' from the leader and can be handled here
+    return await tab.call('loadData');
+  } catch(err) {
+    console.error('Error loading data from leader', err);
+  }
+}
 ```
 
 To communicate between tabs, send and receive messages.

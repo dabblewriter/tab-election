@@ -22,7 +22,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget {
     getCurrentCallerId(): string;
     getState(): T;
     setState(state: T): void;
-    waitForLeadership(onLeadership: OnLeadership): Promise<void>;
+    waitForLeadership(onLeadership: OnLeadership): Promise<boolean>;
     call<R>(name: string, ...rest: any[]): Promise<R>;
     send(data: any, to?: string | Set<string>): void;
     close(): void;

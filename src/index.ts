@@ -74,20 +74,26 @@ export class Tab<T = Record<string, any>> extends EventTarget {
     this.#postMessage(To.Others, 'onState', state);
   }
 
-  async waitForLeadership(onLeadership: OnLeadership): Promise<void> {
+  async waitForLeadership(onLeadership: OnLeadership): Promise<boolean> {
     this.relinquishLeadership(); // Cancel any previous leadership requests
+    const abortController = new AbortController();
+    const { signal } = abortController;
+    this.relinquishLeadership = () => abortController.abort('Aborted');
 
     try {
-      return await navigator.locks.request(`tab-${this.#name}`, async lock => {
+      // The signal will cancel the lock request before a lock is attained, the promise.resolve will cancel it after
+      return await navigator.locks.request(`tab-${this.#name}`, { signal }, async lock => {
         this.#isLeader = true;
+        // Never resolve until relinquishLeadership is called
+        const keepLockPromise = new Promise<boolean>(resolve => (this.relinquishLeadership = () => resolve(true)));
         this.#api = await onLeadership(this.relinquishLeadership);
         this.#isLeaderReady = true;
         this.#queuedCalls.forEach(({ id, name, rest }, callNumber) => this.#onCall(id, callNumber, name, ...rest));
         this.#queuedCalls.clear();
         this.dispatchEvent(new Event('leadershipchange'));
         this.#postMessage(To.Others, 'onLeader', this.#state);
-        return new Promise<void>(resolve => (this.relinquishLeadership = () => resolve())); // Never resolve
-      });
+        return keepLockPromise;
+      }).catch(e => e !== 'Aborted' && Promise.reject(e) || false);
     } finally {
       this.#isLeader = false;
       this.#api = null;
@@ -181,6 +187,7 @@ export class Tab<T = Record<string, any>> extends EventTarget {
       const results = await promise;
       this.#postMessage(id, 'onReturn', callNumber, null, results);
     } catch (e) {
+      this.#callerId = undefined;
       this.#postMessage(id, 'onReturn', callNumber, e);
     }
   }

@@ -14,7 +14,7 @@
     import { Tab } from './index.js';
     const tab = new Tab('test');
     window.tab = tab;
-    tab.waitForLeadership(() => {
+    tab.waitForLeadership((cancel) => {
       console.log('Became leader!');
       return {
         test() {
@@ -22,8 +22,8 @@
           return 'tested';
         }
       }
-    }).then(() => {
-      console.log('No longer leader!');
+    }).then((wasLeader) => {
+      console.log(wasLeader ? 'No longer leader!' : 'No longer wants to be leader.', tab.isLeader);
     })
     const out = document.getElementById('out');
     let lastText = '';
