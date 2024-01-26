@@ -15,11 +15,24 @@ export enum To {
   Leader = 'leader',
 }
 
+export interface TabEventMap {
+  leadershipchange: Event;
+  message: MessageEvent;
+  state: MessageEvent;
+}
+
+export interface Tab {
+  addEventListener<K extends keyof TabEventMap>(type: K, listener: (this: BroadcastChannel, ev: TabEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener<K extends keyof TabEventMap>(type: K, listener: (this: BroadcastChannel, ev: TabEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
+}
+
 /**
  * A Tab is an interfaces to synchronize state and messages between tabs. It uses BroadcastChannel and the Lock API.
  * This is a simplified version of the original implementation.
  */
-export class Tab<T = Record<string, any>> extends EventTarget {
+export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   relinquishLeadership = () => {};
 
   #name: string;
