@@ -26,6 +26,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     relinquishLeadership: () => void;
     private _name;
     private _id;
+    private _hasLeaderCache;
     private _callerId;
     private _callDeferreds;
     private _queuedCalls;
@@ -35,6 +36,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     private _state;
     private _callCount;
     private _api;
+    private _sentCalls;
     constructor(name?: string);
     get id(): string;
     get name(): string;
@@ -52,6 +54,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     _postMessage(to: string | Set<string>, name: string, ...rest: any[]): void;
     _onMessage(event: MessageEvent): void;
     _onCall(id: string, callNumber: number, name: string, ...rest: any[]): Promise<void>;
+    _callReceived(callNumber: number): void;
     _onReturn(callNumber: number, error: any, results: any): void;
     _onState(data: T): void;
     _onSend(data: any): void;
