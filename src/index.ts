@@ -37,6 +37,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
 
   private _name: string;
   private _id: string;
+  private _hasLeaderCache: boolean;
   private _callerId: string;
   private _callDeferreds = new Map<number, Deferred>();
   private _queuedCalls = new Map<number, { id: string; name: string; rest: any[] }>();
@@ -46,6 +47,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   private _state: T;
   private _callCount = 0;
   private _api: any;
+  private _sentCalls = new Map<number, any>();
 
   constructor(name = 'default') {
     super();
@@ -71,12 +73,18 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   }
 
   async hasLeader() {
-    const check = () => navigator.locks.request(`tab-${this._name}`, { ifAvailable: true }, async lock => lock === null);
+    if (this._hasLeaderCache || this.isLeader) return true;
+    const check = () => navigator.locks.request(`tab-${this._name}`, { ifAvailable: true }, lock => lock === null);
     if (await check()) {
       // bug in Chrome will sometimes handle this option lock request first before running the winner first. This is a
       // workaround to make sure the winner runs first.
-      return await check();
-    };
+      const hasLeader = await check();
+      this._hasLeaderCache = hasLeader;
+      // wait to know when there is no longer a leader
+      navigator.locks.request(`tab-${this._name}`, () => this._hasLeaderCache = false);
+      return hasLeader;
+    }
+    return false;
   }
 
   getCurrentCallerId() {
@@ -127,18 +135,19 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
         reject(new Error('Call timed out'));
       }, 30_000);
       this._callDeferreds.set(callNumber, { resolve, reject, timeout });
+      const hasLeader = await this.hasLeader();
       if (this.isLeader && this._isLeaderReady) {
         this._onCall(this._id, callNumber, name, ...rest);
-      } else {
-        const exists = await this.hasLeader();
-        // Check again if this is the leader since it could have become the leader while checking
-        if (this.isLeader && this._isLeaderReady) {
-          this._onCall(this._id, callNumber, name, ...rest);
-        } else if (!this.isLeader && exists) {
+      } else if (!this.isLeader && hasLeader) {
+        // If the call isn't received by the leader within 500ms, assume the leader is dead and try again
+        const send = () => {
+          const t = setTimeout(() => this._sentCalls.has(callNumber) && send(), 500);
+          this._sentCalls.set(callNumber, t);
           this._postMessage(To.Leader, 'onCall', this._id, callNumber, name, ...rest);
-        } else {
-          this._queuedCalls.set(callNumber, { id: this._id, name, rest });
         }
+        send();
+      } else {
+        this._queuedCalls.set(callNumber, { id: this._id, name, rest });
       }
     });
   }
@@ -189,6 +198,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
     const { to, name, rest } = event.data as { to: Set<string>; name: string; rest: any[] };
     if (!this._isToMe(to)) return;
     if (name === 'onCall') this._onCall.apply(this, rest);
+    else if (name === 'callReceived') this._callReceived.apply(this, rest);
     else if (name === 'onReturn') this._onReturn.apply(this, rest);
     else if (name === 'onState') this._onState.apply(this, rest);
     else if (name === 'onSend') this._onSend.apply(this, rest);
@@ -199,6 +209,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
 
   async _onCall(id: string, callNumber: number, name: string, ...rest: any[]) {
     if (!this.isLeader) return;
+    this._postMessage(id, 'callReceived', callNumber);
     if (!this._isLeaderReady) {
       this._queuedCalls.set(callNumber, { id, name, rest });
       return;
@@ -213,6 +224,14 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
     } catch (e) {
       this._callerId = undefined;
       this._postMessage(id, 'onReturn', callNumber, e);
+    }
+  }
+
+  _callReceived(callNumber: number) {
+    const t = this._sentCalls.get(callNumber);
+    if (t) {
+      clearTimeout(t);
+      this._sentCalls.delete(callNumber);
     }
   }
 
