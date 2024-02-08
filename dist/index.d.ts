@@ -23,8 +23,18 @@ export interface Tab {
  * This is a simplified version of the original implementation.
  */
 export declare class Tab<T = Record<string, any>> extends EventTarget implements Tab {
-    #private;
     relinquishLeadership: () => void;
+    private _name;
+    private _id;
+    private _callerId;
+    private _callDeferreds;
+    private _queuedCalls;
+    private _channel;
+    private _isLeader;
+    private _isLeaderReady;
+    private _state;
+    private _callCount;
+    private _api;
     constructor(name?: string);
     get id(): string;
     get name(): string;
@@ -37,4 +47,14 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     call<R>(name: string, ...rest: any[]): Promise<R>;
     send(data: any, to?: string | Set<string>): void;
     close(): void;
+    _isToMe(to: string | Set<string>): boolean;
+    _createChannel(): void;
+    _postMessage(to: string | Set<string>, name: string, ...rest: any[]): void;
+    _onMessage(event: MessageEvent): void;
+    _onCall(id: string, callNumber: number, name: string, ...rest: any[]): Promise<void>;
+    _onReturn(callNumber: number, error: any, results: any): void;
+    _onState(data: T): void;
+    _onSend(data: any): void;
+    _onSendState(id: string): void;
+    _onLeader(state: T): void;
 }
