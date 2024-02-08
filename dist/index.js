@@ -205,6 +205,8 @@ export class Tab extends EventTarget {
         }
     }
     _onReturn(callNumber, error, results) {
+        if (this._sentCalls.get(callNumber))
+            this._callReceived(callNumber);
         const deferred = this._callDeferreds.get(callNumber);
         if (!deferred)
             return console.error('No deferred found for call', callNumber);

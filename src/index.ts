@@ -236,6 +236,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   }
 
   _onReturn(callNumber: number, error: any, results: any) {
+    if (this._sentCalls.get(callNumber)) this._callReceived(callNumber);
     const deferred = this._callDeferreds.get(callNumber);
     if (!deferred) return console.error('No deferred found for call', callNumber);
     clearTimeout(deferred.timeout);
