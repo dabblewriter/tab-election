@@ -263,7 +263,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   _onLeader(state: T) {
     this._onState(state);
     this._queuedCalls.forEach(({ id, name, rest }, callNumber) =>
-      this._postMessage(To.Leader, 'onCall', callNumber, name, ...rest)
+      this._postMessage(To.Leader, 'onCall', id, callNumber, name, ...rest)
     );
     this._queuedCalls.clear();
   }
