@@ -124,9 +124,14 @@ export class Tab extends EventTarget {
         this._channel.close();
         this._channel.onmessage = null;
     }
-    _isToMe(to) {
+    _isToMe(to, sending) {
+        // const toMe = to !== To.Others && (typeof to == 'string' && to[0] !== '-') && this._isToMe(to, true);
         if (typeof to === 'string') {
-            return (to === To.Leader && this._isLeader) || to === this._id || to === To.All || to === To.Others;
+            // All Except is "-[id]", so if it's not me, return true unless I'm the one sending it
+            if (to[0] === '-' && to.slice(1) !== this._id)
+                return !sending;
+            // If we're receiving a message to Others, it is to us, but if we're sending a message to Others, it's not to us
+            return (to === To.Leader && this._isLeader) || to === this._id || to === To.All || (to === To.Others && !sending);
         }
         return to.has(this._id);
     }
@@ -139,10 +144,9 @@ export class Tab extends EventTarget {
         if (!to || to instanceof Set && !to.size)
             return;
         const data = { to, name, rest };
-        const toMe = to !== To.Others && this._isToMe(to);
         try {
             this._channel.postMessage(data);
-            if (toMe) {
+            if (this._isToMe(to, true)) {
                 this._onMessage(new MessageEvent('message', { data }));
             }
         }

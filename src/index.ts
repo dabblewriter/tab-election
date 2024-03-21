@@ -163,9 +163,12 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
     this._channel.onmessage = null;
   }
 
-  _isToMe(to: string | Set<string>) {
+  _isToMe(to: string | Set<string>, sending?: boolean) {
     if (typeof to === 'string') {
-      return (to === To.Leader && this._isLeader) || to === this._id || to === To.All || to === To.Others;
+      // to "All Except [id]" is given as "-[id]", so if it's not me and I'm not sending, return true
+      if (to[0] === '-' && to.slice(1) !== this._id) return !sending;
+      // If we're receiving a message to Others, it is to us, but if we're sending a message to Others, it's not to us
+      return (to === To.Leader && this._isLeader) || to === this._id || to === To.All || (to === To.Others && !sending);
     }
     return to.has(this._id);
   }
@@ -179,10 +182,9 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
     // Don't send if there's no one to send to
     if (!to || to instanceof Set && !to.size) return;
     const data = { to, name, rest };
-    const toMe = to !== To.Others && this._isToMe(to);
     try {
       this._channel.postMessage(data);
-      if (toMe) {
+      if (this._isToMe(to, true)) {
         this._onMessage(new MessageEvent('message', { data }));
       }
     } catch (e) {

@@ -49,7 +49,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     call<R>(name: string, ...rest: any[]): Promise<R>;
     send(data: any, to?: string | Set<string>): void;
     close(): void;
-    _isToMe(to: string | Set<string>): boolean;
+    _isToMe(to: string | Set<string>, sending?: boolean): boolean;
     _createChannel(): void;
     _postMessage(to: string | Set<string>, name: string, ...rest: any[]): void;
     _onMessage(event: MessageEvent): void;
