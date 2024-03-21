@@ -125,9 +125,8 @@ export class Tab extends EventTarget {
         this._channel.onmessage = null;
     }
     _isToMe(to, sending) {
-        // const toMe = to !== To.Others && (typeof to == 'string' && to[0] !== '-') && this._isToMe(to, true);
         if (typeof to === 'string') {
-            // All Except is "-[id]", so if it's not me, return true unless I'm the one sending it
+            // to "All Except [id]" is given as "-[id]", so if it's not me and I'm not sending, return true
             if (to[0] === '-' && to.slice(1) !== this._id)
                 return !sending;
             // If we're receiving a message to Others, it is to us, but if we're sending a message to Others, it's not to us
