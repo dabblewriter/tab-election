@@ -166,7 +166,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   _isToMe(to: string | Set<string>, sending?: boolean) {
     if (typeof to === 'string') {
       // to "All Except [id]" is given as "-[id]", so if it's not me and I'm not sending, return true
-      if (to[0] === '-' && to.slice(1) !== this._id) return !sending;
+      if (to[0] === '-') return to.slice(1) !== this._id && !sending;
       // If we're receiving a message to Others, it is to us, but if we're sending a message to Others, it's not to us
       return (to === To.Leader && this._isLeader) || to === this._id || to === To.All || (to === To.Others && !sending);
     }
