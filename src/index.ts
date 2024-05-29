@@ -164,6 +164,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
   }
 
   _isToMe(to: string | Set<string>, sending?: boolean) {
+    if (!to) return false;
     if (typeof to === 'string') {
       // to "All Except [id]" is given as "-[id]", so if it's not me and I'm not sending, return true
       if (to[0] === '-') return to.slice(1) !== this._id && !sending;
