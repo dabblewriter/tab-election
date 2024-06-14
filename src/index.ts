@@ -81,6 +81,7 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
 
     return this._hasLeaderChecking = check().then(async (hasLeader) => {
       if (!hasLeader) {
+        this._hasLeaderChecking = null;
         return false;
       }
 
