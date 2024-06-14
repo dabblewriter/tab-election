@@ -36,20 +36,25 @@ export class Tab extends EventTarget {
     get isLeader() {
         return this._isLeader;
     }
-    async hasLeader() {
+    hasLeader() {
         if (this._hasLeaderCache || this.isLeader)
-            return true;
+            return Promise.resolve(true);
+        if (this._hasLeaderChecking)
+            return this._hasLeaderChecking;
         const check = () => navigator.locks.request(`tab-${this._name}`, { ifAvailable: true }, lock => lock === null);
-        if (await check()) {
+        return this._hasLeaderChecking = check().then(async (hasLeader) => {
+            if (!hasLeader) {
+                return false;
+            }
             // bug in Chrome will sometimes handle this option lock request first before running the winner first. This is a
             // workaround to make sure the winner runs first.
-            const hasLeader = await check();
+            hasLeader = await check();
             this._hasLeaderCache = hasLeader;
             // wait to know when there is no longer a leader
             navigator.locks.request(`tab-${this._name}`, () => this._hasLeaderCache = false);
+            this._hasLeaderChecking = null;
             return hasLeader;
-        }
-        return false;
+        });
     }
     getCurrentCallerId() {
         return this._callerId;

@@ -27,6 +27,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     private _name;
     private _id;
     private _hasLeaderCache;
+    private _hasLeaderChecking;
     private _callerId;
     private _callDeferreds;
     private _queuedCalls;
@@ -41,7 +42,7 @@ export declare class Tab<T = Record<string, any>> extends EventTarget implements
     get id(): string;
     get name(): string;
     get isLeader(): boolean;
-    hasLeader(): Promise<any>;
+    hasLeader(): Promise<boolean>;
     getCurrentCallerId(): string;
     getState(): T;
     setState(state: T): void;
