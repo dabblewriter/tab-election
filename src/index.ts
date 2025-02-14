@@ -227,9 +227,12 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
       return;
     }
     try {
-      if (typeof this._api?.[name] !== 'function') throw new Error(`Invalid API method "${name}"`);
+      const parts = name.split('.');
+      let fn = parts.pop();
+      const target = parts.reduce((acc, part) => acc && acc[part], this._api);
+      if (typeof target?.[fn] !== 'function') throw new Error(`Invalid API method "${name}"`);
       this._callerId = id;
-      const promise = this._api[name](...rest);
+      const promise = target[fn](...rest);
       this._callerId = undefined;
       const results = await promise;
       this._postMessage(id, 'onReturn', callNumber, null, results);

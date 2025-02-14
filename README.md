@@ -147,16 +147,10 @@ const tab = new Tab('namespace');
 tab.waitForLeadership(async () => {
   // Can have async instructions here. Calls to `call` in any tab will be queued until the API is returned.
   const db = await connectToTheDatabase();
-
-  return {
-    saveData(data) {
-      // ...
-      return true;
-    }
-  }
+  return { db };
 });
 
-const result = await tab.call('saveData', { myData: 'foobar' });
+const result = await tab.call('db.saveRecord', { myData: 'foobar' });
 if (result === true) {
   console.log('Successfully saved');
 }
