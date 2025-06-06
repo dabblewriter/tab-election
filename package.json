@@ -1,6 +1,6 @@
 {
   "name": "tab-election",
-  "version": "4.1.18",
+  "version": "4.2.0",
   "description": "Provides leadership election and communication in the browser across tabs and workers using the Locks API and BroadcastChannel.",
   "main": "dist/tab.js",
   "module": "dist/tab.js",
