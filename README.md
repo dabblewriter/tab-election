@@ -175,43 +175,80 @@ if (result === true) {
 
 For more complex applications, tab-election provides a Hub & Spoke architecture that simplifies multi-tab coordination with type-safe service registration and RPC communication. The Hub runs in a SharedWorker, WebWorker, or elected tab to manage shared services, while Spokes in each tab communicate with the Hub through typed proxies.
 
-```js
+### Type-Safe Service Definition
+
+Services must define a static `namespace` property for compile-time safety:
+
+```typescript
 import { Hub, Spoke, Service } from 'tab-election';
 
-// Define a service class
+// Define a service class with required static namespace
 class DatabaseService extends Service {
+  readonly namespace = 'db';
+
   async init() {
     this.db = await openDatabase();
   }
 
-  async getUser(id) {
+  async getUser(id: string): Promise<User> {
     return await this.db.get('users', id);
   }
 
-  async saveUser(user) {
+  async saveUser(user: User): Promise<void> {
     await this.db.put('users', user);
     this.emit('user-saved', { user }); // Notify all connected tabs
   }
 }
 
-// Hub setup (in SharedWorker or elected tab)
-const hub = new Hub({ name: 'app-session', version: '1.0.0' });
-hub.register('db', DatabaseService);
+class AuthService extends Service {
+  readonly namespace = 'auth';
 
-// Spoke setup (in each tab)
+  async login(credentials: LoginData): Promise<Token> {
+    // Authentication logic...
+  }
+}
+```
+
+### Hub Setup (in SharedWorker or elected tab)
+
+```typescript
+const hub = new Hub({ name: 'app-session', version: '1.0.0' });
+
+// Type-safe registration - namespace must match service's static namespace
+hub.register('db', DatabaseService);
+hub.register('auth', AuthService);
+hub.register('wrong', DatabaseService);  // ❌ TypeScript error, namespace must match (safety feature)
+```
+
+### Spoke Setup (in each tab)
+
+```typescript
 const spoke = new Spoke({
   workerUrl: 'hub.js',
   name: 'app-session',
   version: '1.0.0'
 });
 
-const db = spoke.client('db');
-const user = await db.getUser('123'); // Type-safe RPC call
+// Type-safe client access - fully typed methods and return values
+const db = spoke.client<DatabaseService>('db');
+const auth = spoke.client<AuthService>('auth');
+const auth = spoke.client<AuthService>('wrong'); // ❌ TypeScript error, namespace must match (safety feature)
+
+// All method calls are fully typed
+const user = await db.getUser('123');           // Returns Promise<User>
+const token = await auth.login(credentials);    // Returns Promise<Token>
 
 // Listen for service events
-db.on('user-saved', (payload) => {
+const unsubscribe = db.on('user-saved', (payload) => {
   console.log('User was updated:', payload.user);
 });
 ```
+
+### Type Safety Benefits
+
+- **Compile-time namespace validation**: Impossible to mismatch namespace strings with service classes
+- **Full type inference**: Method signatures, parameters, and return types are all preserved
+- **IntelliSense support**: Full autocomplete and type checking in your IDE
+- **Refactoring safety**: Renaming methods or changing signatures is caught at compile time
 
 The Hub & Spoke pattern is ideal when you need centralized resource management, type-safe inter-tab communication, or want to isolate heavy operations in a worker thread.

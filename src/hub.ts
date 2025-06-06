@@ -75,8 +75,10 @@ export type UnsubscribeFunction = () => void;
  * Base service class that provides event emission capabilities.
  * All services should extend this class to enable event-driven communication with spokes.
  */
-export class Service {
-  constructor(protected readonly hub: Hub, readonly namespace: string) {}
+export abstract class Service {
+  abstract readonly namespace: string;
+
+  constructor(protected readonly hub: Hub) {}
 
   /**
    * Initialize the service.
@@ -111,7 +113,7 @@ export class Service {
   }
 }
 
-export type Client<T extends typeof Service> = Exclude<AllMethodsAsync<T>, 'init' | 'close' | 'emit'> & {
+export type Client<T extends Service> = AllMethodsAsync<Omit<T, 'init' | 'close' | 'emit'>> & {
   on<T = unknown>(eventName: string, listener: EventListener<T>): UnsubscribeFunction;
 };
 
@@ -148,7 +150,7 @@ export type VersionMismatchHandler = (oldVersion: string, newVersion: string) =>
  * Utility type to convert all methods to async methods for RPC.
  */
 type AllMethodsAsync<T> = {
-  [K in keyof T as T[K] extends (...args: any[]) => any ? K : never]: T[K] extends (...args: infer P) => Promise<any>
+  [K in keyof T as T[K] extends (...args: any[]) => any ? K : never]: T[K] extends (...args: any[]) => Promise<any>
     ? T[K]
     : T[K] extends (...args: infer P) => infer R
     ? (...args: P) => Promise<R>
@@ -158,9 +160,10 @@ type AllMethodsAsync<T> = {
 class Leader {
   services: Record<string, Service> = {};
 
-  constructor(hub: Hub, serviceConstructors: Map<string, typeof Service>) {
-    for (const [namespace, ServiceConstructor] of serviceConstructors) {
-      const service = new ServiceConstructor(hub, namespace);
+  constructor(hub: Hub, serviceClasses: Map<string, new (...args: any) => Service>) {
+    for (const [namespace, ServiceClass] of serviceClasses) {
+      if (ServiceClass === Service) throw new Error('Cannot register abstract Service class');
+      const service = new ServiceClass(hub);
       this.services[namespace] = service;
     }
   }
@@ -193,7 +196,7 @@ class Leader {
  * - Broadcasting updates to connected spokes
  */
 export class Hub {
-  protected serviceConstructors = new Map<string, typeof Service>();
+  protected serviceClasses = new Map<string, new (...args: any) => Service>();
   protected tab: Tab;
   protected leader: Leader | null = null;
   protected versionChannel?: BroadcastChannel;
@@ -230,16 +233,16 @@ export class Hub {
    * Register a service class with the hub.
    * Services will be instantiated only when this hub becomes the leader.
    *
-   * @param namespace - Unique namespace for the service (used in RPC calls)
-   * @param serviceConstructor - Class constructor for the service
+   * @param namespace - Unique namespace for the service (must match service's static namespace)
+   * @param serviceClass - Class for the service
    * @example
    * ```typescript
    * hub.register('db', DatabaseService);
    * hub.register('auth', AuthenticationService);
    * ```
    */
-  register(namespace: string, serviceConstructor: typeof Service): void {
-    this.serviceConstructors.set(namespace, serviceConstructor);
+  register<T extends Service>(namespace: Service['namespace'], serviceClass: new (...args: any) => T): void {
+    this.serviceClasses.set(namespace, serviceClass);
   }
 
   /**
@@ -301,7 +304,7 @@ export class Hub {
 
   protected async initializeLeadership() {
     await this.tab.waitForLeadership(async () => {
-      this.leader = new Leader(this, this.serviceConstructors);
+      this.leader = new Leader(this, this.serviceClasses);
       await this.leader.init();
       return this.leader.services;
     });
@@ -343,7 +346,7 @@ export class Hub {
 export class Spoke {
   protected tab: Tab;
   protected worker?: Worker | SharedWorker | Hub;
-  protected clients = new Map<string, Client<typeof Service>>();
+  protected clients = new Map<string, Client<Service>>();
   protected onStateListeners = new Set<EventListener<Record<string, any>>>();
 
   readonly name: string;
@@ -418,7 +421,7 @@ export class Spoke {
   /**
    * Get a type-safe client proxy for calling methods on a hub service.
    *
-   * @param namespace - The namespace of the service to create a client for
+   * @param namespace - The namespace of the service to create a client for (must match service's namespace)
    * @returns A proxy object with async versions of all service methods
    * @example
    * ```typescript
@@ -427,7 +430,7 @@ export class Spoke {
    * await db.saveUser(updatedUser);
    * ```
    */
-  client<T extends typeof Service>(namespace: string): Client<T> {
+  client<T extends Service>(namespace: T['namespace']): Client<T> {
     if (this.clients.has(namespace)) {
       return this.clients.get(namespace) as Client<T>;
     }
