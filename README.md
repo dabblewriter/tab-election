@@ -170,3 +170,48 @@ if (result === true) {
   console.log('Successfully saved');
 }
 ```
+
+## Hub & Spoke Architecture
+
+For more complex applications, tab-election provides a Hub & Spoke architecture that simplifies multi-tab coordination with type-safe service registration and RPC communication. The Hub runs in a SharedWorker, WebWorker, or elected tab to manage shared services, while Spokes in each tab communicate with the Hub through typed proxies.
+
+```js
+import { Hub, Spoke, Service } from 'tab-election';
+
+// Define a service class
+class DatabaseService extends Service {
+  async init() {
+    this.db = await openDatabase();
+  }
+
+  async getUser(id) {
+    return await this.db.get('users', id);
+  }
+
+  async saveUser(user) {
+    await this.db.put('users', user);
+    this.emit('user-saved', { user }); // Notify all connected tabs
+  }
+}
+
+// Hub setup (in SharedWorker or elected tab)
+const hub = new Hub({ name: 'app-session', version: '1.0.0' });
+hub.register('db', DatabaseService);
+
+// Spoke setup (in each tab)
+const spoke = new Spoke({
+  workerUrl: 'hub.js',
+  name: 'app-session',
+  version: '1.0.0'
+});
+
+const db = spoke.client('db');
+const user = await db.getUser('123'); // Type-safe RPC call
+
+// Listen for service events
+db.on('user-saved', (payload) => {
+  console.log('User was updated:', payload.user);
+});
+```
+
+The Hub & Spoke pattern is ideal when you need centralized resource management, type-safe inter-tab communication, or want to isolate heavy operations in a worker thread.

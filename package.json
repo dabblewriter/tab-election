@@ -2,8 +2,12 @@
   "name": "tab-election",
   "version": "4.1.18",
   "description": "Provides leadership election and communication in the browser across tabs and workers using the Locks API and BroadcastChannel.",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
+  "main": "dist/tab.js",
+  "module": "dist/tab.js",
+  "exports": {
+    ".": "./dist/tab.js",
+    "./hub": "./dist/hub.js"
+  },
   "scripts": {
     "start": "cd dist && http-server",
     "watch": "tsc -w",
@@ -23,6 +27,6 @@
   "homepage": "https://github.com/dabblewriter/tab-election#readme",
   "devDependencies": {
     "http-server": "^14.1.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.8.3"
   }
 }
