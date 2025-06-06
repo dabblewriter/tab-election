@@ -36,7 +36,7 @@ import { Tab } from './tab.js';
  * }
  *
  * // Hub setup (in shared worker or elected tab)
- * const hub = new Hub({ name: 'user-123', version: '1.0.0' });
+ * const hub = new Hub();
  * hub.register('db', DatabaseService);
  * hub.onVersionMismatch((oldVersion, newVersion) => {
  *   console.log(`Version updated: ${oldVersion} -> ${newVersion}`);
@@ -122,7 +122,7 @@ export type Client<T extends Service> = AllMethodsAsync<Omit<T, 'init' | 'close'
  */
 export interface HubOptions {
   /** Unique name/namespace for this hub instance (e.g., 'user-123', 'session-abc') */
-  name: string;
+  name?: string;
   /** Optional version string for version mismatch detection */
   version?: string;
 }
@@ -201,31 +201,59 @@ export class Hub {
   protected leader: Leader | null = null;
   protected versionChannel?: BroadcastChannel;
   protected versionMismatchHandlers = new Set<VersionMismatchHandler>();
+  protected _name: string;
+  protected _version: string;
 
-  readonly name: string;
-  readonly version: string;
 
   /**
    * Create a new Hub instance.
    *
-   * @param options - Configuration options for the hub
    * @example
    * ```typescript
-   * const hub = new Hub({
-   *   name: 'user-123',
-   *   version: '1.0.0'
-   * });
+   * const hub = new Hub();
    * ```
    */
-  constructor(options: HubOptions) {
-    this.name = options.name || 'default';
-    this.version = options.version || '0.0.0';
+  constructor() {
+    const url = new URL(location.href);
+    this._name = url.searchParams.get('hub-name') || '';
+    this._version = url.searchParams.get('hub-version') || '';
 
     // Create tab for leadership election and communication
     const tabName = `hub/${this.name}/${this.version}`;
     this.tab = new Tab(tabName);
 
-    // Start leadership election
+    if (this._name && this._version) {
+      // Start leadership election if the name and version were provided, otherwise wait to be set in setOptions
+      this.initializeLeadership();
+    }
+  }
+
+  /**
+   * Get the name of the hub.
+   */
+  get name() {
+    return this._name;
+  }
+
+  /**
+   * Get the version of the hub.
+   */
+  get version() {
+    return this._version;
+  }
+
+  /**
+   * Change the options of the hub.
+   * This will change the name and version of the hub and restart the leadership election.
+   *
+   * @param options - The new options for the hub
+   */
+  setOptions(options: Required<HubOptions>) {
+    this._name = options.name;
+    this._version = options.version;
+    this.tab.relinquishLeadership();
+    this.tab.close();
+    this.tab = new Tab(`hub/${this.name}/${this.version}`);
     this.initializeLeadership();
   }
 
@@ -233,7 +261,7 @@ export class Hub {
    * Register a service class with the hub.
    * Services will be instantiated only when this hub becomes the leader.
    *
-   * @param namespace - Unique namespace for the service (must match service's static namespace)
+   * @param namespace - Unique namespace for the service (must match service's namespace)
    * @param serviceClass - Class for the service
    * @example
    * ```typescript
@@ -376,10 +404,11 @@ export class Spoke {
     // Determine worker URL with version parameter
     if (options.workerUrl instanceof Hub) {
       this.worker = options.workerUrl;
+      this.worker.setOptions({ name: this.name, version: this.version });
     } else {
       const url = new URL(options.workerUrl, location.href);
-      url.searchParams.set('name', this.name);
-      url.searchParams.set('version', this.version);
+      url.searchParams.set('hub-name', this.name);
+      url.searchParams.set('hub-version', this.version);
 
       // Determine if we should use SharedWorker
       const useSharedWorker = options.useSharedWorker ?? url.searchParams.has('shared');

@@ -177,12 +177,12 @@ For more complex applications, tab-election provides a Hub & Spoke architecture 
 
 ### Type-Safe Service Definition
 
-Services must define a static `namespace` property for compile-time safety:
+Services must define a `namespace` property for compile-time safety:
 
 ```typescript
 import { Hub, Spoke, Service } from 'tab-election';
 
-// Define a service class with required static namespace
+// Define a service class with required namespace
 class DatabaseService extends Service {
   readonly namespace = 'db';
 
@@ -209,12 +209,12 @@ class AuthService extends Service {
 }
 ```
 
-### Hub Setup (in SharedWorker or elected tab)
+### Hub Setup (in SharedWorker)
 
 ```typescript
-const hub = new Hub({ name: 'app-session', version: '1.0.0' });
+const hub = new Hub();
 
-// Type-safe registration - namespace must match service's static namespace
+// Type-safe registration - namespace must match service's namespace
 hub.register('db', DatabaseService);
 hub.register('auth', AuthService);
 hub.register('wrong', DatabaseService);  // ❌ TypeScript error, namespace must match (safety feature)
