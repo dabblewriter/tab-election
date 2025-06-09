@@ -191,7 +191,7 @@ export class Hub {
    * });
    * ```
    */
-  constructor(public readonly initialize: (hub: Hub) => Promise<void>) {
+  constructor(public readonly initialize: (hub: Hub) => Promise<void> | void) {
     const url = new URL(location.href);
     this._name = url.searchParams.get('hub-name') || '';
     this._version = url.searchParams.get('hub-version') || '';
