@@ -183,10 +183,12 @@ Services must define a `namespace` property for compile-time safety:
 import { Hub, Spoke, Service } from 'tab-election';
 
 // Define a service class with required namespace
-class DatabaseService extends Service {
+class DatabaseService implements Service {
   readonly namespace = 'db';
+  hub: Hub | undefined;
 
-  async init() {
+  async init(hub: Hub) {
+    this.hub = hub;
     this.db = await openDatabase();
   }
 
@@ -196,11 +198,11 @@ class DatabaseService extends Service {
 
   async saveUser(user: User): Promise<void> {
     await this.db.put('users', user);
-    this.emit('user-saved', { user }); // Notify all connected tabs
+    this.hub?.emit('user-saved', { user }); // Notify all connected tabs
   }
 }
 
-class AuthService extends Service {
+class AuthService implements Service {
   readonly namespace = 'auth';
 
   async login(credentials: LoginData): Promise<Token> {
@@ -212,12 +214,10 @@ class AuthService extends Service {
 ### Hub Setup (in SharedWorker)
 
 ```typescript
-const hub = new Hub();
-
-// Type-safe registration - namespace must match service's namespace
-hub.register('db', DatabaseService);
-hub.register('auth', AuthService);
-hub.register('wrong', DatabaseService);  // ❌ TypeScript error, namespace must match (safety feature)
+const hub = new Hub(hub => {
+  hub.register(new DatabaseService());
+  hub.register(new AuthService());
+});
 ```
 
 ### Spoke Setup (in each tab)

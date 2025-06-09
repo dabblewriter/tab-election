@@ -36,8 +36,10 @@ import { Tab } from './tab.js';
  * }
  *
  * // Hub setup (in shared worker or elected tab)
- * const hub = new Hub();
- * hub.register('db', DatabaseService);
+ * const hub = new Hub((hub) => {
+ *   hub.register(new DatabaseService());
+ *   hub.register(new AuthenticationService());
+ * });
  * hub.onVersionMismatch((oldVersion, newVersion) => {
  *   console.log(`Version updated: ${oldVersion} -> ${newVersion}`);
  *   return 'refresh'; // or 'ignore'
@@ -75,45 +77,23 @@ export type UnsubscribeFunction = () => void;
  * Base service class that provides event emission capabilities.
  * All services should extend this class to enable event-driven communication with spokes.
  */
-export abstract class Service {
-  abstract readonly namespace: string;
-
-  constructor(protected readonly hub: Hub) {}
+export interface Service {
+  readonly namespace: string;
 
   /**
    * Initialize the service.
    * This is called once when the service is first instantiated in the hub.
    */
-  async init(): Promise<void> {}
+  init?(hub: Hub): Promise<void> | void;
 
   /**
    * Close the service.
    * This is called when the service is no longer needed.
    */
-  close(): void {}
-
-  /**
-   * Emit an event to all connected spokes for this service.
-   * Events are scoped to the service namespace, so only clients of this specific service will receive them.
-   *
-   * @param eventName - Name of the event to emit
-   * @param payload - Data to send with the event
-   * @example
-   * ```typescript
-   * this.emit('user-updated', { userId: '123', changes: {...} });
-   * ```
-   */
-  protected emit(eventName: string, payload: unknown): void {
-    this.hub.send({
-      type: 'service-event',
-      namespace: this.namespace,
-      eventName,
-      payload,
-    });
-  }
+  close?(): void;
 }
 
-export type Client<T extends Service> = AllMethodsAsync<Omit<T, 'init' | 'close' | 'emit'>> & {
+export type Client<T extends Service> = AllMethodsAsync<Omit<T, 'init' | 'close'>> & {
   on<T = unknown>(eventName: string, listener: EventListener<T>): UnsubscribeFunction;
 };
 
@@ -158,27 +138,21 @@ type AllMethodsAsync<T> = {
 };
 
 class Leader {
-  services: Record<string, Service> = {};
 
-  constructor(hub: Hub, serviceClasses: Map<string, new (...args: any) => Service>) {
-    for (const [namespace, ServiceClass] of serviceClasses) {
-      if (ServiceClass === Service) throw new Error('Cannot register abstract Service class');
-      const service = new ServiceClass(hub);
-      this.services[namespace] = service;
-    }
+  constructor(public hub: Hub, public readonly services: Map<string, Service>) {
   }
 
-  async init() {
-    for (const service of Object.values(this.services)) {
-      if (service instanceof Service) {
-        await service.init();
+  async init(hub: Hub) {
+    for (const service of this.services.values()) {
+      if (typeof service.init === 'function') {
+        await service.init(hub);
       }
     }
   }
 
   close() {
-    for (const service of Object.values(this.services)) {
-      if (service instanceof Service) {
+    for (const service of this.services.values()) {
+      if (typeof service.close === 'function') {
         service.close();
       }
     }
@@ -190,13 +164,13 @@ class Leader {
  *
  * The Hub is responsible for:
  * - Leadership election among tabs/workers
- * - Service instantiation and lifecycle management
+ * - Service initialization and lifecycle management
  * - RPC method dispatch from spokes to services
  * - Version mismatch detection and handling
  * - Broadcasting updates to connected spokes
  */
 export class Hub {
-  protected serviceClasses = new Map<string, new (...args: any) => Service>();
+  protected services = new Map<string, Service>();
   protected tab: Tab;
   protected leader: Leader | null = null;
   protected versionChannel?: BroadcastChannel;
@@ -210,10 +184,14 @@ export class Hub {
    *
    * @example
    * ```typescript
-   * const hub = new Hub();
+   * const hub = new Hub((hub) => {
+   *   // Initialize the hub when it becomes the leader
+   *   hub.register(new DatabaseService());
+   *   hub.register(new AuthenticationService());
+   * });
    * ```
    */
-  constructor() {
+  constructor(public readonly initialize: (hub: Hub) => Promise<void>) {
     const url = new URL(location.href);
     this._name = url.searchParams.get('hub-name') || '';
     this._version = url.searchParams.get('hub-version') || '';
@@ -258,19 +236,18 @@ export class Hub {
   }
 
   /**
-   * Register a service class with the hub.
+   * Register a service with the hub.
    * Services will be instantiated only when this hub becomes the leader.
    *
-   * @param namespace - Unique namespace for the service (must match service's namespace)
-   * @param serviceClass - Class for the service
+   * @param service - Instance of the service
    * @example
    * ```typescript
-   * hub.register('db', DatabaseService);
-   * hub.register('auth', AuthenticationService);
+   * hub.register(databaseService);
+   * hub.register(authenticationService);
    * ```
    */
-  register<T extends Service>(namespace: Service['namespace'], serviceClass: new (...args: any) => T): void {
-    this.serviceClasses.set(namespace, serviceClass);
+  register<T extends Service>(service: T): void {
+    this.services.set(service.namespace, service);
   }
 
   /**
@@ -307,6 +284,27 @@ export class Hub {
   }
 
   /**
+   * Emit an event to all connected spokes for a service.
+   * Events are scoped to the service namespace, so only clients of this specific service will receive them.
+   *
+   * @param namespace - Namespace of the service to emit the event for
+   * @param eventName - Name of the event to emit
+   * @param payload - Data to send with the event
+   * @example
+   * ```typescript
+   * hub.emit('db', 'user-updated', { userId: '123', changes: {...} });
+   * ```
+   */
+  emit(namespace: string, eventName: string, payload: unknown): void {
+    this.send({
+      type: 'service-event',
+      namespace,
+      eventName,
+      payload,
+    });
+  }
+
+  /**
    * Set the state of the hub.
    *
    * @param state - State to set
@@ -332,9 +330,10 @@ export class Hub {
 
   protected async initializeLeadership() {
     await this.tab.waitForLeadership(async () => {
-      this.leader = new Leader(this, this.serviceClasses);
-      await this.leader.init();
-      return this.leader.services;
+      await this.initialize(this);
+      this.leader = new Leader(this, this.services);
+      await this.leader.init(this);
+      return Object.fromEntries(this.leader.services.entries());
     });
 
     if (this.leader) {
