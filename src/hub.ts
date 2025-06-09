@@ -305,15 +305,22 @@ export class Hub {
   }
 
   /**
-   * Set the state of the hub.
+   * Get the state of the hub.
+   */
+  get state(): Record<string, any> {
+    return this.tab.getState();
+  }
+
+  /**
+   * Updates the state of the hub.
    *
-   * @param state - State to set
+   * @param state - State to update
    * @example
    * ```typescript
    * hub.setState({ connected: true });
    * ```
    */
-  setState(state: Record<string, any>): void {
+  updateState(state: Record<string, any>): void {
     const currentState = this.tab.getState();
     this.tab.setState({ ...currentState, ...state });
   }
