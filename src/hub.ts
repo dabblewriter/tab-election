@@ -196,8 +196,7 @@ export class Hub {
     this._version = version || self.name.split(':')[1] || '0.0.0';
 
     // Create tab for leadership election and communication
-    const tabName = `hub/${this.name}/${this.version}`;
-    this.tab = new Tab(tabName);
+    this.tab = new Tab(`hub/${this.name}/${this.version}`);
 
     if (this._name && this._version) {
       // Start leadership election if the name and version were provided, otherwise wait to be set in setOptions
@@ -401,7 +400,7 @@ export class Spoke {
   constructor(options: SpokeOptions) {
     this.name = options.name || 'default';
     this.version = options.version || '0.0.0';
-    this.tab = new Tab(`${this.name}/${this.version}`);
+    this.tab = new Tab(`hub/${this.name}/${this.version}`);
     this.tab.addEventListener('state', event => {
       this.onStateListeners.forEach(listener => listener(event.data));
     });
