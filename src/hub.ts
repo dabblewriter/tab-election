@@ -191,10 +191,9 @@ export class Hub {
    * });
    * ```
    */
-  constructor(public readonly initialize: (hub: Hub) => Promise<void> | void) {
-    const url = new URL(location.href);
-    this._name = url.searchParams.get('hub-name') || '';
-    this._version = url.searchParams.get('hub-version') || '';
+  constructor(public readonly initialize: (hub: Hub) => Promise<void> | void, name?: string, version?: string) {
+    this._name = name || self.name.split(':')[0] || 'default';
+    this._version = version || self.name.split(':')[1] || '0.0.0';
 
     // Create tab for leadership election and communication
     const tabName = `hub/${this.name}/${this.version}`;
@@ -412,18 +411,12 @@ export class Spoke {
       this.worker = options.workerUrl;
       this.worker.setOptions({ name: this.name, version: this.version });
     } else {
-      const url = new URL(options.workerUrl, location.href);
-      url.searchParams.set('hub-name', this.name);
-      url.searchParams.set('hub-version', this.version);
-
-      // Determine if we should use SharedWorker
-      const useSharedWorker = options.useSharedWorker ?? url.searchParams.has('shared');
-
       // Create worker and tab for communication
-      if (useSharedWorker && 'SharedWorker' in globalThis) {
-        this.worker = new SharedWorker(url.href);
+      const name = `${this.name}:${this.version}`;
+      if (options.useSharedWorker && 'SharedWorker' in globalThis) {
+        this.worker = new SharedWorker(options.workerUrl, { type: 'module', name });
       } else if ('Worker' in globalThis) {
-        this.worker = new Worker(url.href);
+        this.worker = new Worker(options.workerUrl, { type: 'module', name });
       } else {
         throw new Error('No worker available in this environment');
       }
