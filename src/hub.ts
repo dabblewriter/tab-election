@@ -17,11 +17,21 @@ import { Tab } from './tab.js';
  *
  * @example
  * ```typescript
- * // Define a service class
- * class DatabaseService extends Service {
+ * // Define event types for your service
+ * interface DatabaseEvents {
+ *   'user-saved': { user: User };
+ *   'user-deleted': { id: string };
+ * }
+ *
+ * // Define a service class with phantom property for type inference
+ * class DatabaseService {
+ *   readonly namespace = 'db' as const;
+ *   readonly __events?: DatabaseEvents;  // Phantom property - don't set at runtime
  *   private db: IDBDatabase;
+ *   private hub: Hub;
  *
  *   async init(hub: Hub): Promise<void> {
+ *     this.hub = hub;
  *     this.db = await openDB(`app-${hub.name}`);
  *   }
  *
@@ -31,7 +41,7 @@ import { Tab } from './tab.js';
  *
  *   async saveUser(user: User): Promise<void> {
  *     // Database operations...
- *     this.emit('user-saved', { user }); // Emit events to all connected spokes
+ *     this.hub.emit(this.namespace, 'user-saved', { user }); // Type-safe event emission
  *   }
  * }
  *
@@ -54,10 +64,14 @@ import { Tab } from './tab.js';
  * const db = spoke.client<DatabaseService>('db');
  * const user = await db.getUser('123'); // Fully typed!
  *
- * // Listen for events from the service
- * const unsubscribe = db.on('user-saved', (payload) => {
- *   console.log('User was saved:', payload.user);
+ * // Listen for events from the service - fully typed!
+ * const unsubscribe = db.on('user-saved', ({ user }) => {
+ *   console.log('User was saved:', user);
  * });
+ *
+ * // TypeScript will error on invalid event names or payloads:
+ * // db.on('invalid-event', () => {}); // Error: invalid event name
+ * // db.on('user-saved', ({ wrongProp }) => {}); // Error: wrong payload shape
  * ```
  */
 
@@ -74,11 +88,33 @@ export type EventListener<T = unknown> = (payload: T) => void;
 export type UnsubscribeFunction = () => void;
 
 /**
- * Base service class that provides event emission capabilities.
- * All services should extend this class to enable event-driven communication with spokes.
+ * Base service interface that hub services should implement.
+ *
+ * `Events` is a mapping from event names (string keys) to the payload type that will be
+ * delivered to listeners. By default it is an empty map meaning the service does not
+ * emit any strongly-typed events.
+ *
+ * @example
+ * ```typescript
+ * interface UserEvents {
+ *   "user-saved": { user: User };
+ *   "user-deleted": { id: string };
+ * }
+ *
+ * class DatabaseService {
+ *   readonly namespace = "db" as const;
+ *   readonly __events?: UserEvents;  // Phantom property for type inference
+ *
+ *   async saveUser(user: User): Promise<void> {
+ *     // ... save logic
+ *     // Emit via hub.emit(this.namespace, 'user-saved', { user })
+ *   }
+ * }
+ * ```
  */
-export interface Service {
+export interface Service<Events extends Record<string, any> = {}> {
   readonly namespace: string;
+  readonly __events?: Events;
 
   /**
    * Initialize the service.
@@ -93,8 +129,14 @@ export interface Service {
   close?(): void;
 }
 
-export type Client<T extends Service> = AllMethodsAsync<Omit<T, 'init' | 'close'>> & {
-  on<T = unknown>(eventName: string, listener: EventListener<T>): UnsubscribeFunction;
+// Extract the event map from a Service implementation
+type ServiceEvents<T> = T extends Service<infer E> ? E : never;
+
+/**
+ * Client proxy type for a Service implementation with type-safe events.
+ */
+export type Client<T extends Service<any>> = AllMethodsAsync<Omit<T, 'init' | 'close' | '__events'>> & {
+  on<K extends keyof ServiceEvents<T>>(eventName: K, listener: EventListener<ServiceEvents<T>[K]>): UnsubscribeFunction;
 };
 
 /**
