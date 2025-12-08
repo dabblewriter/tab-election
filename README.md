@@ -229,10 +229,10 @@ const spoke = new Spoke({
   version: '1.0.0'
 });
 
-// Type-safe client access - fully typed methods and return values
-const db = spoke.client<DatabaseService>('db');
-const auth = spoke.client<AuthService>('auth');
-const auth = spoke.client<AuthService>('wrong'); // ❌ TypeScript error, namespace must match (safety feature)
+// Type-safe service access - fully typed methods and return values
+const db = spoke.getService<DatabaseService>('db');
+const auth = spoke.getService<AuthService>('auth');
+const auth = spoke.getService<AuthService>('wrong'); // ❌ TypeScript error, namespace must match (safety feature)
 
 // All method calls are fully typed
 const user = await db.getUser('123');           // Returns Promise<User>

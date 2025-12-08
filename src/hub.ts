@@ -13,7 +13,7 @@ import { Tab } from './tab.js';
  * - Type-safe RPC between spokes and hub services
  * - Optional version mismatch detection and handling
  * - Support for SharedWorker, WebWorker, or in-tab coordination
- * - Flexible service registration and client proxy generation
+ * - Flexible service registration and service stub generation
  *
  * @example
  * ```typescript
@@ -61,7 +61,7 @@ import { Tab } from './tab.js';
  *   name: 'user-123',
  *   version: '1.0.0'
  * });
- * const db = spoke.client<DatabaseService>('db');
+ * const db = spoke.getService<DatabaseService>('db');
  * const user = await db.getUser('123'); // Fully typed!
  *
  * // Listen for events from the service - fully typed!
@@ -133,11 +133,16 @@ export interface Service<Events extends Record<string, any> = {}> {
 type ServiceEvents<T> = T extends Service<infer E> ? E : never;
 
 /**
- * Client proxy type for a Service implementation with type-safe events.
+ * Service stub type - a proxy for calling methods on a remote Service with type-safe events.
  */
-export type Client<T extends Service<any>> = AllMethodsAsync<Omit<T, 'init' | 'close' | '__events'>> & {
+export type ServiceStub<T extends Service<any>> = AllMethodsAsync<Omit<T, 'init' | 'close' | '__events'>> & {
   on<K extends keyof ServiceEvents<T>>(eventName: K, listener: EventListener<ServiceEvents<T>[K]>): UnsubscribeFunction;
 };
+
+/**
+ * @deprecated Use `ServiceStub<T>` instead. This alias will be removed in a future major version.
+ */
+export type Client<T extends Service<any>> = ServiceStub<T>;
 
 /**
  * Configuration options for creating a Hub.
@@ -420,7 +425,7 @@ export class Hub {
 export class Spoke {
   protected tab: Tab;
   protected worker?: Worker | SharedWorker | Hub;
-  protected clients = new Map<string, Client<Service>>();
+  protected stubs = new Map<string, ServiceStub<Service>>();
   protected onStateListeners = new Set<EventListener<Record<string, any>>>();
 
   readonly name: string;
@@ -488,20 +493,20 @@ export class Spoke {
   }
 
   /**
-   * Get a type-safe client proxy for calling methods on a hub service.
+   * Get a type-safe stub for calling methods on a hub service.
    *
-   * @param namespace - The namespace of the service to create a client for (must match service's namespace)
+   * @param namespace - The namespace of the service to get (must match service's namespace)
    * @returns A proxy object with async versions of all service methods
    * @example
    * ```typescript
-   * const db = spoke.client<DatabaseService>('db');
+   * const db = spoke.getService<DatabaseService>('db');
    * const user = await db.getUser('123'); // Fully typed!
    * await db.saveUser(updatedUser);
    * ```
    */
-  client<T extends Service>(namespace: T['namespace']): Client<T> {
-    if (this.clients.has(namespace)) {
-      return this.clients.get(namespace) as Client<T>;
+  getService<T extends Service>(namespace: T['namespace']): ServiceStub<T> {
+    if (this.stubs.has(namespace)) {
+      return this.stubs.get(namespace) as ServiceStub<T>;
     }
 
     const on = (eventName: string, listener: EventListener) => {
@@ -518,10 +523,10 @@ export class Spoke {
       return () => this.tab.removeEventListener('message', handler);
     };
 
-    const client = new Proxy({} as any, {
+    const stub = new Proxy({} as any, {
       get: (_target, prop) => {
         if (typeof prop === 'symbol') {
-          throw new Error('Can only call async functions on service clients');
+          throw new Error('Can only call async functions on service stubs');
         }
         if (prop === 'on') {
           return on;
@@ -530,10 +535,17 @@ export class Spoke {
           return this.tab.call(`${namespace}.${prop as string}`, ...args);
         };
       },
-    }) as Client<T>;
+    }) as ServiceStub<T>;
 
-    this.clients.set(namespace, client);
-    return client;
+    this.stubs.set(namespace, stub);
+    return stub;
+  }
+
+  /**
+   * @deprecated Use `getService()` instead. This method will be removed in a future major version.
+   */
+  client<T extends Service>(namespace: T['namespace']): ServiceStub<T> {
+    return this.getService<T>(namespace);
   }
 
   /**
