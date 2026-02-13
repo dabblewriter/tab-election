@@ -178,10 +178,10 @@ export type VersionMismatchHandler = (oldVersion: string, newVersion: string) =>
  */
 type AllMethodsAsync<T> = {
   [K in keyof T as T[K] extends (...args: any[]) => any ? K : never]: T[K] extends (...args: any[]) => Promise<any>
-    ? T[K]
-    : T[K] extends (...args: infer P) => infer R
-    ? (...args: P) => Promise<R>
-    : never;
+  ? T[K]
+  : T[K] extends (...args: infer P) => infer R
+  ? (...args: P) => Promise<R>
+  : never;
 };
 
 class Leader {
@@ -530,6 +530,9 @@ export class Spoke {
         }
         if (prop === 'on') {
           return on;
+        }
+        if (prop === 'then') {
+          return undefined;
         }
         return async (...args: any[]) => {
           return this.tab.call(`${namespace}.${prop as string}`, ...args);
