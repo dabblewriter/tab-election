@@ -206,6 +206,13 @@ class Leader {
   }
 }
 
+export interface Hub {
+  addEventListener(type: 'message', listener: (ev: MessageEvent) => any, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener(type: 'message', listener: (ev: MessageEvent) => any, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
+}
+
 /**
  * Hub class - runs in shared worker or elected tab to manage services and coordination.
  *
@@ -216,7 +223,7 @@ class Leader {
  * - Version mismatch detection and handling
  * - Broadcasting updates to connected spokes
  */
-export class Hub {
+export class Hub extends EventTarget {
   protected services = new Map<string, Service>();
   protected tab: Tab;
   protected leader: Leader | null = null;
@@ -239,6 +246,7 @@ export class Hub {
    * ```
    */
   constructor(public readonly initialize: (hub: Hub) => Promise<void> | void, name?: string, version?: string) {
+    super();
     this._name = name || self.name.split(':')[0] || 'default';
     this._version = version || self.name.split(':')[1] || '0.0.0';
 
@@ -263,6 +271,13 @@ export class Hub {
    */
   get version() {
     return this._version;
+  }
+
+  /**
+   * Whether this hub instance is the elected leader.
+   */
+  get isLeader(): boolean {
+    return this.tab.isLeader;
   }
 
   /**
@@ -381,6 +396,16 @@ export class Hub {
   }
 
   protected async initializeLeadership() {
+    this.tab.addEventListener('leadershipchange', () => {
+      const data = { type: 'tab-election:leadership', isLeader: this.tab.isLeader };
+      // In a dedicated worker, notify the parent tab via postMessage
+      if (typeof window === 'undefined' && 'postMessage' in self) {
+        (self as any).postMessage(data);
+      }
+      // Dispatch locally for in-tab Hub case (Spoke listens via addEventListener)
+      this.dispatchEvent(new MessageEvent('message', { data }));
+    });
+
     await this.tab.waitForLeadership(async () => {
       await this.initialize(this);
       this.leader = new Leader(this, this.services);
@@ -427,6 +452,8 @@ export class Spoke {
   protected worker?: Worker | SharedWorker | Hub;
   protected stubs = new Map<string, ServiceStub<Service>>();
   protected onStateListeners = new Set<EventListener<Record<string, any>>>();
+  protected onLeaderChangeListeners = new Set<EventListener<boolean>>();
+  protected _isLeader = false;
 
   readonly name: string;
   readonly version?: string;
@@ -467,6 +494,25 @@ export class Spoke {
         throw new Error('No worker available in this environment');
       }
     }
+
+    // Listen for leadership changes from the worker (regular Worker via postMessage,
+    // in-tab Hub via EventTarget). SharedWorker is excluded since the spoke doesn't own it.
+    if (!(this.worker instanceof SharedWorker)) {
+      this.worker.addEventListener('message', ((e: MessageEvent) => {
+        if (e.data?.type === 'tab-election:leadership') {
+          this._isLeader = e.data.isLeader;
+          this.onLeaderChangeListeners.forEach(l => l(e.data.isLeader));
+        }
+      }) as EventListener);
+    }
+  }
+
+  /**
+   * Whether this spoke's worker is the elected leader.
+   * Always false when using a SharedWorker (the spoke doesn't own it).
+   */
+  get isLeader(): boolean {
+    return this._isLeader;
   }
 
   /**
@@ -474,6 +520,19 @@ export class Spoke {
    */
   get state(): Record<string, any> {
     return this.tab.getState();
+  }
+
+  /**
+   * Listen for leadership changes.
+   * The listener is called with `true` when this spoke's worker becomes the leader,
+   * and `false` when it loses leadership.
+   *
+   * @param listener - Function to call when leadership changes
+   * @returns A function to unsubscribe the listener
+   */
+  onLeaderChange(listener: EventListener<boolean>): UnsubscribeFunction {
+    this.onLeaderChangeListeners.add(listener);
+    return () => this.onLeaderChangeListeners.delete(listener);
   }
 
   /**
