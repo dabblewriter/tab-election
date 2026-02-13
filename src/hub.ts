@@ -231,6 +231,8 @@ export class Hub extends EventTarget {
   protected versionMismatchHandlers = new Set<VersionMismatchHandler>();
   protected _name: string;
   protected _version: string;
+  protected _isRecovery: boolean;
+  protected _heartbeatInterval?: ReturnType<typeof setInterval>;
 
 
   /**
@@ -247,8 +249,10 @@ export class Hub extends EventTarget {
    */
   constructor(public readonly initialize: (hub: Hub) => Promise<void> | void, name?: string, version?: string) {
     super();
-    this._name = name || self.name.split(':')[0] || 'default';
-    this._version = version || self.name.split(':')[1] || '0.0.0';
+    const parts = name ? [] : self.name.split(':');
+    this._name = name || parts[0] || 'default';
+    this._version = version || parts[1] || '0.0.0';
+    this._isRecovery = !name && !!parts[2];
 
     // Create tab for leadership election and communication
     this.tab = new Tab(`hub/${this.name}/${this.version}`);
@@ -389,6 +393,7 @@ export class Hub extends EventTarget {
    * Close the hub and clean up resources.
    */
   close(): void {
+    clearInterval(this._heartbeatInterval);
     this.tab.close();
     this.leader?.close();
     this.leader = null;
@@ -410,9 +415,13 @@ export class Hub extends EventTarget {
       await this.initialize(this);
       this.leader = new Leader(this, this.services);
       await this.leader.init(this);
+      this._heartbeatInterval = setInterval(() => {
+        this.send({ type: 'tab-election:heartbeat' });
+      }, 2000);
       return Object.fromEntries(this.leader.services.entries());
-    });
+    }, { steal: this._isRecovery });
 
+    clearInterval(this._heartbeatInterval);
     if (this.leader) {
       this.leader.close();
       this.leader = null;
@@ -454,6 +463,10 @@ export class Spoke {
   protected onStateListeners = new Set<EventListener<Record<string, any>>>();
   protected onLeaderChangeListeners = new Set<EventListener<boolean>>();
   protected _isLeader = false;
+  protected _workerUrl?: string;
+  protected _recoveryAttempt = 0;
+  protected _heartbeatTimeout?: ReturnType<typeof setTimeout>;
+  protected _lastHeartbeat = 0;
 
   readonly name: string;
   readonly version?: string;
@@ -484,6 +497,7 @@ export class Spoke {
       this.worker = options.workerUrl;
       this.worker.setOptions({ name: this.name, version: this.version });
     } else {
+      this._workerUrl = options.workerUrl;
       // Create worker and tab for communication
       const name = `${this.name}:${this.version}`;
       if (options.useSharedWorker && 'SharedWorker' in globalThis) {
@@ -504,6 +518,11 @@ export class Spoke {
           this.onLeaderChangeListeners.forEach(l => l(e.data.isLeader));
         }
       }) as EventListener);
+    }
+
+    // Monitor heartbeats from the hub for worker recovery
+    if (this._workerUrl) {
+      this._startHeartbeatMonitoring();
     }
   }
 
@@ -614,12 +633,74 @@ export class Spoke {
    * Close the spoke and clean up resources.
    */
   close(): void {
+    clearTimeout(this._heartbeatTimeout);
     if (this.worker instanceof Worker) {
       this.worker.terminate();
     } else if (this.worker instanceof SharedWorker) {
       this.worker.port.close();
     } else if (this.worker instanceof Hub) {
       this.worker.close();
+    }
+  }
+
+  protected _startHeartbeatMonitoring(): void {
+    // Randomized timeout between 5-10s per spoke instance
+    const timeout = 5000 + Math.random() * 5000;
+
+    this.tab.addEventListener('message', (e: MessageEvent) => {
+      if (e.data?.type === 'tab-election:heartbeat') {
+        this._lastHeartbeat = Date.now();
+      } else if (e.data?.type === 'tab-election:recover' && this.worker instanceof SharedWorker) {
+        // SharedWorker recovery broadcasts — all spokes must switch together
+        this._recover(e.data.attempt);
+      }
+    });
+
+    const check = () => {
+      this._heartbeatTimeout = setTimeout(() => {
+        // Only trigger recovery after receiving at least one heartbeat
+        if (this._lastHeartbeat > 0 && Date.now() - this._lastHeartbeat > timeout) {
+          if (this.worker instanceof SharedWorker) {
+            // SharedWorker: broadcast so all spokes recover together
+            const attempt = this._recoveryAttempt + 1;
+            this.tab.send({ type: 'tab-election:recover', attempt });
+            this._recover(attempt);
+          } else if (this.worker instanceof Worker && this._isLeader) {
+            // Regular Worker: only recover if this spoke's worker is the hung leader.
+            // Terminate releases the lock, another tab's worker takes leadership.
+            this._recover(this._recoveryAttempt + 1);
+          }
+        }
+        check();
+      }, timeout);
+    };
+    check();
+  }
+
+  protected _recover(attempt: number): void {
+    if (attempt <= this._recoveryAttempt) return;
+    this._recoveryAttempt = attempt;
+
+    if (this.worker instanceof SharedWorker) {
+      this.worker.port.close();
+      // New SharedWorker with recovery suffix — same URL, same version,
+      // different worker name so the browser creates a new process.
+      // The Hub parses the recovery suffix and uses steal:true on the lock.
+      const name = `${this.name}:${this.version}:recover-${attempt}`;
+      this.worker = new SharedWorker(this._workerUrl!, { type: 'module', name });
+    } else if (this.worker instanceof Worker) {
+      this.worker.terminate();
+      // New Worker — lock was released by terminate, another tab's worker
+      // or this new one will take leadership naturally.
+      const name = `${this.name}:${this.version}`;
+      this.worker = new Worker(this._workerUrl!, { type: 'module', name });
+      // Re-attach leadership change listener on the new worker
+      this.worker.addEventListener('message', ((e: MessageEvent) => {
+        if (e.data?.type === 'tab-election:leadership') {
+          this._isLeader = e.data.isLeader;
+          this.onLeaderChangeListeners.forEach(l => l(e.data.isLeader));
+        }
+      }) as EventListener);
     }
   }
 }

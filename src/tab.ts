@@ -109,15 +109,17 @@ export class Tab<T = Record<string, any>> extends EventTarget implements Tab {
     this._postMessage(To.Others, 'onState', state);
   }
 
-  async waitForLeadership(onLeadership: OnLeadership): Promise<boolean> {
+  async waitForLeadership(onLeadership: OnLeadership, options?: { steal?: boolean }): Promise<boolean> {
     this.relinquishLeadership(); // Cancel any previous leadership requests
     const abortController = new AbortController();
     const { signal } = abortController;
     this.relinquishLeadership = () => abortController.abort('Aborted');
 
     try {
-      // The signal will cancel the lock request before a lock is attained, the promise.resolve will cancel it after
-      return await navigator.locks.request(`tab-${this._name}`, { signal }, async lock => {
+      // steal: true forcibly takes the lock from the current holder (used for recovery)
+      // signal: cancels the lock request before a lock is attained
+      const lockOptions: LockOptions = options?.steal ? { steal: true } : { signal };
+      return await navigator.locks.request(`tab-${this._name}`, lockOptions, async lock => {
         this._isLeader = true;
         // Never resolve until relinquishLeadership is called
         const keepLockPromise = new Promise<boolean>(resolve => (this.relinquishLeadership = () => resolve(true)));
